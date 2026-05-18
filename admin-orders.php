@@ -1,4 +1,113 @@
-<?php require_once "includes/admin-auth.php"; ?>
+<?php
+require_once "includes/admin-auth.php";
+require_once "includes/db.php";
+
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"]) && $_POST["action"] === "update_status") {
+    header("Content-Type: application/json");
+
+    try {
+        $orderId = (int) ($_POST["order_id"] ?? 0);
+        $newStatus = strtolower(trim($_POST["status"] ?? ""));
+        $allowed = ["pending", "preparing", "ready", "delivered", "cancelled"];
+
+        if ($orderId <= 0 || !in_array($newStatus, $allowed, true)) {
+            throw new Exception("Invalid order status update.");
+        }
+
+        $stmt = $conn->prepare("SELECT order_status FROM orders WHERE order_id = :order_id LIMIT 1");
+        $stmt->execute([":order_id" => $orderId]);
+        $order = $stmt->fetch();
+
+        if (!$order) {
+            throw new Exception("Order not found.");
+        }
+
+        $oldStatus = $order["order_status"];
+
+        $updateStmt = $conn->prepare("
+            UPDATE orders
+            SET order_status = :order_status
+            WHERE order_id = :order_id
+        ");
+        $updateStmt->execute([
+            ":order_status" => $newStatus,
+            ":order_id" => $orderId
+        ]);
+
+        $historyStmt = $conn->prepare("
+            INSERT INTO order_status_history
+            (order_id, updated_by, old_status, new_status, remarks)
+            VALUES
+            (:order_id, :updated_by, :old_status, :new_status, 'Updated by admin')
+        ");
+        $historyStmt->execute([
+            ":order_id" => $orderId,
+            ":updated_by" => (int) $_SESSION["user_id"],
+            ":old_status" => $oldStatus,
+            ":new_status" => $newStatus
+        ]);
+
+        echo json_encode(["success" => true]);
+        exit;
+
+    } catch (Throwable $e) {
+        http_response_code(400);
+        echo json_encode([
+            "success" => false,
+            "message" => $e->getMessage()
+        ]);
+        exit;
+    }
+}
+
+$stmt = $conn->prepare("
+    SELECT
+        o.*,
+        u.email,
+        p.payment_method,
+        COUNT(oi.order_item_id) AS item_count
+    FROM orders o
+    LEFT JOIN users u ON o.user_id = u.user_id
+    LEFT JOIN payments p ON o.order_id = p.order_id
+    LEFT JOIN order_items oi ON o.order_id = oi.order_id
+    GROUP BY o.order_id
+    ORDER BY o.created_at DESC
+");
+$stmt->execute();
+$orders = $stmt->fetchAll();
+
+function peso($value) {
+    return "₱" . number_format((float) $value, 2);
+}
+
+function displayStatus($status) {
+    return ucfirst($status);
+}
+
+function displayPaymentStatus($status) {
+    return ucfirst($status ?: "unpaid");
+}
+
+function displayPaymentMethod($method) {
+    if ($method === "gcash") return "GCash";
+    if ($method === "card") return "Card";
+    return "Cash";
+}
+
+$statusCounts = [
+    "all" => count($orders),
+    "pending" => 0,
+    "preparing" => 0,
+    "ready" => 0,
+    "delivered" => 0
+];
+
+foreach ($orders as $order) {
+    if (isset($statusCounts[$order["order_status"]])) {
+        $statusCounts[$order["order_status"]]++;
+    }
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,102 +116,18 @@
   <title>FurrfectCafe Admin | Orders</title>
   <link rel="stylesheet" href="style.css">
   <style>
-    .orders-shell {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 26px;
-      box-shadow: var(--shadow-sm);
-      padding: 18px;
-    }
-
-    .toolbar-grid {
-      display: grid;
-      grid-template-columns: 1.3fr 0.8fr 0.8fr 0.7fr;
-      gap: 12px;
-      margin-bottom: 14px;
-    }
-
-    .status-pills {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 16px;
-    }
-
-    .status-pill {
-      min-height: 40px;
-      padding: 10px 14px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: #fff;
-      font-family: Arial, Helvetica, sans-serif;
-      color: var(--text-muted);
-      font-weight: 700;
-    }
-
-    .status-pill.active {
-      background: var(--bg-soft);
-      color: var(--text);
-      border-color: var(--border);
-    }
-
-    .admin-search,
-    .admin-select {
-      width: 100%;
-      min-height: 52px;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      background: var(--surface);
-      padding: 14px 16px;
-      outline: none;
-      font-family: Arial, Helvetica, sans-serif;
-    }
-
-    .customer-cell strong {
-      display: block;
-    }
-
-    .customer-cell small,
-    .type-cell small {
-      display: block;
-      color: var(--text-muted);
-      font-family: Arial, Helvetica, sans-serif;
-      font-size: 0.84rem;
-      margin-top: 3px;
-    }
-
-    .type-cell {
-      font-family: Arial, Helvetica, sans-serif;
-    }
-
-    .status-select {
-      min-height: 36px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      padding: 6px 10px;
-      font-family: Arial, Helvetica, sans-serif;
-      background: white;
-    }
-
-    .view-btn {
-      min-height: 36px;
-      min-width: 36px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: #fff;
-    }
-
-    @media (max-width: 1100px) {
-      .toolbar-grid {
-        grid-template-columns: 1fr 1fr;
-      }
-    }
-
-    @media (max-width: 640px) {
-      .toolbar-grid {
-        grid-template-columns: 1fr;
-      }
-    }
+    .orders-shell { background: var(--surface); border: 1px solid var(--border); border-radius: 26px; box-shadow: var(--shadow-sm); padding: 18px; }
+    .toolbar-grid { display: grid; grid-template-columns: 1.3fr 0.8fr 0.8fr 0.7fr; gap: 12px; margin-bottom: 14px; }
+    .status-pills { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    .status-pill { min-height: 40px; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-family: Arial, Helvetica, sans-serif; color: var(--text-muted); font-weight: 700; }
+    .status-pill.active { background: var(--bg-soft); color: var(--text); border-color: var(--border); }
+    .admin-search, .admin-select { width: 100%; min-height: 52px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); padding: 14px 16px; outline: none; font-family: Arial, Helvetica, sans-serif; }
+    .customer-cell strong { display: block; }
+    .customer-cell small, .type-cell { font-family: Arial, Helvetica, sans-serif; color: var(--text-muted); }
+    .status-select { min-height: 40px; border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; background: #fff; font-family: Arial, Helvetica, sans-serif; }
+    .view-btn { width: 38px; height: 38px; border-radius: 12px; background: var(--bg-soft); border: 1px solid var(--border); }
+    @media (max-width: 1100px) { .toolbar-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 700px) { .toolbar-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -120,7 +145,7 @@
 
       <div class="eyebrow" style="color: rgba(255,255,255,0.45); margin-top: 20px;">Orders</div>
       <nav class="admin-nav">
-        <a href="admin-orders.php" class="active">Orders <span style="float:right; opacity:0.8;">5</span></a>
+        <a href="admin-orders.php" class="active">Orders <span style="float:right; opacity:0.8;"><?php echo count($orders); ?></span></a>
       </nav>
 
       <div class="eyebrow" style="color: rgba(255,255,255,0.45); margin-top: 20px;">Catalog</div>
@@ -129,52 +154,49 @@
         <a href="admin-product-form.php">+ Add / Edit Product</a>
       </nav>
 
-      <div style="margin-top:auto; padding-top:22px; border-top:1px solid rgba(255,255,255,0.08);">
-        <div style="display:flex; align-items:center; gap:12px;">
-          <div class="brand-mark" style="width:42px;height:42px;background:rgba(255,255,255,0.12); color:#fff; border:none;">A</div>
-          <div>
-            <strong style="display:block;">Admin</strong>
-            <span style="font-family:Arial, Helvetica, sans-serif; color:rgba(255,255,255,0.65); font-size:0.9rem;">Administrator</span>
-          </div>
-        </div>
+      <div class="admin-sidebar-footer">
+        <a href="logout.php" class="admin-logout-btn" style="display:grid;place-items:center;">Logout</a>
       </div>
     </aside>
 
     <main class="admin-content">
       <div class="admin-topbar">
-        <h1 class="admin-page-title">☰ Order Management</h1>
+        <div>
+          <span class="eyebrow">Admin</span>
+          <h1 class="admin-page-title">Orders</h1>
+        </div>
+
         <div class="admin-toolbar-right">
-          <span>24 orders today</span>
+          <a href="index.php" class="btn btn-secondary btn-sm">View Site</a>
+          <a href="logout.php" class="btn btn-secondary btn-sm">Logout</a>
         </div>
       </div>
 
       <section class="orders-shell">
-        <div class="toolbar-grid">
-          <input type="text" class="admin-search" id="orderSearch" placeholder="Search order # or customer...">
-
-          <select class="admin-select" id="statusFilter">
-            <option value="all">All Statuses</option>
-            <option value="Pending">Pending</option>
-            <option value="Preparing">Preparing</option>
-            <option value="Ready">Ready</option>
-            <option value="Delivered">Delivered</option>
-          </select>
-
-          <select class="admin-select" id="paymentFilter">
-            <option value="all">All Payments</option>
-            <option value="Paid">Paid</option>
-            <option value="Unpaid">Unpaid</option>
-          </select>
-
-          <input type="date" class="admin-search" value="2026-03-22">
+        <div class="status-pills" id="statusTabs">
+          <button class="status-pill active" data-status="all">All (<?php echo $statusCounts["all"]; ?>)</button>
+          <button class="status-pill" data-status="pending">Pending (<?php echo $statusCounts["pending"]; ?>)</button>
+          <button class="status-pill" data-status="preparing">Preparing (<?php echo $statusCounts["preparing"]; ?>)</button>
+          <button class="status-pill" data-status="ready">Ready (<?php echo $statusCounts["ready"]; ?>)</button>
+          <button class="status-pill" data-status="delivered">Delivered (<?php echo $statusCounts["delivered"]; ?>)</button>
         </div>
 
-        <div class="status-pills" id="statusTabs">
-          <button class="status-pill active" data-status="all">24 All</button>
-          <button class="status-pill" data-status="Pending">5 Pending</button>
-          <button class="status-pill" data-status="Preparing">7 Preparing</button>
-          <button class="status-pill" data-status="Ready">4 Ready</button>
-          <button class="status-pill" data-status="Delivered">8 Delivered</button>
+        <div class="toolbar-grid">
+          <input class="admin-search" type="search" id="orderSearch" placeholder="Search order or customer">
+          <select class="admin-select" id="statusFilter">
+            <option value="all">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="preparing">Preparing</option>
+            <option value="ready">Ready</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <select class="admin-select" id="paymentFilter">
+            <option value="all">All Payments</option>
+            <option value="unpaid">Unpaid</option>
+            <option value="paid">Paid</option>
+          </select>
+          <button class="btn btn-secondary btn-full" type="button" onclick="window.location.reload()">Refresh</button>
         </div>
 
         <div class="table-wrap">
@@ -187,13 +209,53 @@
                 <th>Items</th>
                 <th>Total</th>
                 <th>Payment</th>
-                <th>Pay Status</th>
-                <th>Status</th>
+                <th>Payment Status</th>
+                <th>Order Status</th>
                 <th>Time</th>
-                <th>Action</th>
+                <th>View</th>
               </tr>
             </thead>
-            <tbody id="ordersTableBody"></tbody>
+            <tbody id="ordersTableBody">
+              <?php if (!$orders): ?>
+                <tr>
+                  <td colspan="10" style="text-align:center; padding:30px;">No database orders found yet.</td>
+                </tr>
+              <?php endif; ?>
+
+              <?php foreach ($orders as $order): ?>
+                <tr
+                  data-search="<?php echo strtolower(htmlspecialchars($order["order_number"] . " " . $order["customer_name"] . " " . ($order["email"] ?? ""))); ?>"
+                  data-status="<?php echo htmlspecialchars($order["order_status"]); ?>"
+                  data-payment="<?php echo htmlspecialchars($order["payment_status"]); ?>"
+                >
+                  <td><strong><?php echo htmlspecialchars($order["order_number"]); ?></strong></td>
+                  <td class="customer-cell">
+                    <strong><?php echo htmlspecialchars($order["customer_name"]); ?></strong>
+                    <small><?php echo htmlspecialchars($order["email"] ?? ""); ?></small>
+                  </td>
+                  <td class="type-cell"><?php echo $order["delivery_type"] === "pickup" ? "🛍 Pick-up" : "🚚 Delivery"; ?></td>
+                  <td><?php echo (int) $order["item_count"]; ?></td>
+                  <td><?php echo peso($order["total_amount"]); ?></td>
+                  <td><?php echo displayPaymentMethod($order["payment_method"] ?? "cod"); ?></td>
+                  <td>
+                    <span class="badge <?php echo $order["payment_status"] === "paid" ? "badge-success" : "badge-danger"; ?>">
+                      <?php echo displayPaymentStatus($order["payment_status"]); ?>
+                    </span>
+                  </td>
+                  <td>
+                    <select class="status-select" data-order-id="<?php echo (int) $order["order_id"]; ?>">
+                      <?php foreach (["pending", "preparing", "ready", "delivered", "cancelled"] as $status): ?>
+                        <option value="<?php echo $status; ?>" <?php echo $order["order_status"] === $status ? "selected" : ""; ?>>
+                          <?php echo displayStatus($status); ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                  </td>
+                  <td><?php echo date("h:i A", strtotime($order["created_at"])); ?></td>
+                  <td><a class="view-btn" href="order-confirmation.php?id=<?php echo (int) $order["order_id"]; ?>" style="display:grid;place-items:center;">👁</a></td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
           </table>
         </div>
       </section>
@@ -202,161 +264,71 @@
 
   <script src="script.js"></script>
   <script>
-        document.addEventListener("DOMContentLoaded", () => {
-          const mockOrders = [
-        {
-          id: "FC-2026-0043",
-          customer: "Jenny D.",
-          email: "jennyd@example.com",
-          type: "Delivery",
-          items: 3,
-          total: 387.50,
-          payment: "COD",
-          paymentStatus: "Unpaid",
-          status: "Pending",
-          time: "2:14 PM"
-        },
-        {
-          id: "FC-2026-0041",
-          customer: "Carl P.",
-          email: "carlp@gmail.com",
-          type: "Delivery",
-          items: 4,
-          total: 450.00,
-          payment: "COD",
-          paymentStatus: "Unpaid",
-          status: "Ready",
-          time: "1:20 PM"
-        },
-        {
-          id: "FC-2026-0039",
-          customer: "Neil L.",
-          email: "neill@email.com",
-          type: "Pick-up",
-          items: 3,
-          total: 310.00,
-          payment: "Cash",
-          paymentStatus: "Unpaid",
-          status: "Delivered",
-          time: "12:30 PM"
-        },
-        {
-          id: "FC-2026-0038",
-          customer: "Fuji D.",
-          email: "fuji@yahoo.com",
-          type: "Delivery",
-          items: 2,
-          total: 245.00,
-          payment: "COD",
-          paymentStatus: "Paid",
-          status: "Preparing",
-          time: "11:55 AM"
-        },
-        {
-          id: "FC-2026-0037",
-          customer: "Marc G.",
-          email: "marcg@mail.com",
-          type: "Pick-up",
-          items: 5,
-          total: 515.00,
-          payment: "Cash",
-          paymentStatus: "Paid",
-          status: "Preparing",
-          time: "10:40 AM"
-        }
-      ];
-
-      const tableBody = document.getElementById("ordersTableBody");
+    document.addEventListener("DOMContentLoaded", () => {
       const orderSearch = document.getElementById("orderSearch");
       const statusFilter = document.getElementById("statusFilter");
       const paymentFilter = document.getElementById("paymentFilter");
       const statusTabs = document.getElementById("statusTabs");
-
+      const tableBody = document.getElementById("ordersTableBody");
       let activeStatusTab = "all";
 
-      function formatPeso(value) {
-        return `₱${Number(value).toFixed(2)}`;
-      }
-
-      function renderTable() {
+      function filterRows() {
         const searchValue = orderSearch.value.trim().toLowerCase();
         const statusValue = statusFilter.value;
         const paymentValue = paymentFilter.value;
 
-        const filtered = mockOrders.filter(order => {
-          const matchesSearch =
-            order.id.toLowerCase().includes(searchValue) ||
-            order.customer.toLowerCase().includes(searchValue);
+        tableBody.querySelectorAll("tr[data-status]").forEach(row => {
+          const matchesSearch = row.dataset.search.includes(searchValue);
+          const matchesStatus = statusValue === "all" || row.dataset.status === statusValue;
+          const matchesPayment = paymentValue === "all" || row.dataset.payment === paymentValue;
+          const matchesTab = activeStatusTab === "all" || row.dataset.status === activeStatusTab;
 
-          const matchesStatusSelect = statusValue === "all" || order.status === statusValue;
-          const matchesPayment = paymentValue === "all" || order.paymentStatus === paymentValue;
-          const matchesTab = activeStatusTab === "all" || order.status === activeStatusTab;
-
-          return matchesSearch && matchesStatusSelect && matchesPayment && matchesTab;
+          row.style.display = matchesSearch && matchesStatus && matchesPayment && matchesTab ? "" : "none";
         });
-
-        tableBody.innerHTML = filtered.map(order => `
-          <tr>
-            <td><strong>${order.id}</strong></td>
-            <td class="customer-cell">
-              <strong>${order.customer}</strong>
-              <small>${order.email}</small>
-            </td>
-            <td class="type-cell">
-              ${order.type === "Delivery" ? "🚚 Delivery" : "🛍 Pick-up"}
-            </td>
-            <td>${order.items}</td>
-            <td>${formatPeso(order.total)}</td>
-            <td>${order.payment}</td>
-            <td>
-              <span class="badge ${order.paymentStatus === "Paid" ? "badge-success" : "badge-danger"}">${order.paymentStatus}</span>
-            </td>
-            <td>
-              <select class="status-select" data-order-id="${order.id}">
-                <option ${order.status === "Pending" ? "selected" : ""}>Pending</option>
-                <option ${order.status === "Preparing" ? "selected" : ""}>Preparing</option>
-                <option ${order.status === "Ready" ? "selected" : ""}>Ready</option>
-                <option ${order.status === "Delivered" ? "selected" : ""}>Delivered</option>
-              </select>
-            </td>
-            <td>${order.time}</td>
-            <td><button class="view-btn" data-view-id="${order.id}">👁</button></td>
-          </tr>
-        `).join("");
       }
 
-      orderSearch.addEventListener("input", renderTable);
-      statusFilter.addEventListener("change", renderTable);
-      paymentFilter.addEventListener("change", renderTable);
+      orderSearch.addEventListener("input", filterRows);
+      statusFilter.addEventListener("change", filterRows);
+      paymentFilter.addEventListener("change", filterRows);
 
-      statusTabs.addEventListener("click", (event) => {
+      statusTabs.addEventListener("click", event => {
         const btn = event.target.closest(".status-pill");
         if (!btn) return;
 
         statusTabs.querySelectorAll(".status-pill").forEach(item => item.classList.remove("active"));
         btn.classList.add("active");
         activeStatusTab = btn.dataset.status;
-        renderTable();
+        filterRows();
       });
 
-      tableBody.addEventListener("change", (event) => {
+      tableBody.addEventListener("change", async event => {
         const select = event.target.closest(".status-select");
         if (!select) return;
-        const order = mockOrders.find(item => item.id === select.dataset.orderId);
-        if (order) {
-          order.status = select.value;
-          alert(`Order ${order.id} status updated to ${order.status}.`);
-          renderTable();
+
+        const formData = new FormData();
+        formData.append("action", "update_status");
+        formData.append("order_id", select.dataset.orderId);
+        formData.append("status", select.value);
+
+        try {
+          const response = await fetch("admin-orders.php", {
+            method: "POST",
+            body: formData
+          });
+
+          const result = await response.json();
+
+          if (!result.success) {
+            throw new Error(result.message || "Status update failed.");
+          }
+
+          alert("Order status updated successfully.");
+          window.location.reload();
+        } catch (error) {
+          alert(error.message || "Status update failed.");
+          window.location.reload();
         }
       });
-
-      tableBody.addEventListener("click", (event) => {
-        const viewBtn = event.target.closest("[data-view-id]");
-        if (!viewBtn) return;
-        alert(`Viewing order ${viewBtn.dataset.viewId}. Demo only.`);
-      });
-
-      renderTable();
     });
   </script>
 </body>
