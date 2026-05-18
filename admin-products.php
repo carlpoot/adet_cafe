@@ -1,4 +1,61 @@
-<?php require_once "includes/admin-auth.php"; ?>
+<?php
+require_once "includes/admin-auth.php";
+require_once "includes/db.php";
+
+$message = "";
+
+if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["delete_product_id"])) {
+    $deleteId = (int) $_POST["delete_product_id"];
+
+    if ($deleteId > 0) {
+        try {
+            $stmt = $conn->prepare("DELETE FROM products WHERE product_id = ?");
+            $stmt->execute([$deleteId]);
+            $message = "Product deleted successfully.";
+        } catch (Exception $e) {
+            $message = "Could not delete product. It may already be connected to existing orders.";
+        }
+    }
+}
+
+$categoriesStmt = $conn->query("SELECT category_name FROM categories WHERE is_active = 1 ORDER BY display_order, category_name");
+$categories = $categoriesStmt->fetchAll();
+
+$productsStmt = $conn->query("
+    SELECT 
+        p.product_id,
+        p.product_name,
+        p.description,
+        p.price,
+        p.image_path,
+        p.promo_badge,
+        p.is_available,
+        c.category_name,
+        COALESCE(SUM(oi.quantity), 0) AS orders_count
+    FROM products p
+    JOIN categories c ON p.category_id = c.category_id
+    LEFT JOIN order_items oi ON p.product_id = oi.product_id
+    GROUP BY 
+        p.product_id,
+        p.product_name,
+        p.description,
+        p.price,
+        p.image_path,
+        p.promo_badge,
+        p.is_available,
+        c.category_name
+    ORDER BY p.updated_at DESC, p.product_id DESC
+");
+$products = $productsStmt->fetchAll();
+
+if (isset($_GET["saved"])) {
+    $message = "Product saved successfully.";
+}
+
+function h($value) {
+    return htmlspecialchars((string)$value, ENT_QUOTES, "UTF-8");
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -42,11 +99,13 @@
     }
 
     .product-thumb {
-      width: 46px;
-      height: 46px;
+      width: 52px;
+      height: 52px;
       border-radius: 12px;
       object-fit: cover;
       flex-shrink: 0;
+      background: #f1e6d8;
+      border: 1px solid var(--border);
     }
 
     .product-cell small {
@@ -54,6 +113,7 @@
       color: var(--text-muted);
       font-family: Arial, Helvetica, sans-serif;
       margin-top: 3px;
+      max-width: 260px;
     }
 
     .action-row {
@@ -70,6 +130,9 @@
       font-weight: 700;
       border: 1px solid var(--border);
       background: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .mini-btn.edit {
@@ -80,6 +143,24 @@
       color: white;
       background: #d25454;
       border-color: #d25454;
+    }
+
+    .alert {
+      padding: 14px 16px;
+      border-radius: 16px;
+      margin-bottom: 16px;
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: 700;
+      background: rgba(75, 155, 99, 0.12);
+      color: var(--success);
+      border: 1px solid rgba(75, 155, 99, 0.25);
+    }
+
+    .empty-row {
+      text-align: center;
+      padding: 32px;
+      color: var(--text-muted);
+      font-family: Arial, Helvetica, sans-serif;
     }
 
     @media (max-width: 980px) {
@@ -104,7 +185,7 @@
 
       <div class="eyebrow" style="color: rgba(255,255,255,0.45); margin-top: 20px;">Orders</div>
       <nav class="admin-nav">
-        <a href="admin-orders.php">Orders <span style="float:right; opacity:0.8;">5</span></a>
+        <a href="admin-orders.php">Orders</a>
       </nav>
 
       <div class="eyebrow" style="color: rgba(255,255,255,0.45); margin-top: 20px;">Catalog</div>
@@ -113,14 +194,15 @@
         <a href="admin-product-form.php">+ Add / Edit Product</a>
       </nav>
 
-      <div style="margin-top:auto; padding-top:22px; border-top:1px solid rgba(255,255,255,0.08);">
-        <div style="display:flex; align-items:center; gap:12px;">
-          <div class="brand-mark" style="width:42px;height:42px;background:rgba(255,255,255,0.12); color:#fff; border:none;">A</div>
+      <div class="admin-sidebar-footer">
+        <div class="admin-user-mini">
+          <div class="admin-user-avatar">A</div>
           <div>
             <strong style="display:block;">Admin</strong>
             <span style="font-family:Arial, Helvetica, sans-serif; color:rgba(255,255,255,0.65); font-size:0.9rem;">Administrator</span>
           </div>
         </div>
+        <a href="logout.php" class="admin-logout-btn" style="display:flex; align-items:center; justify-content:center;">Logout</a>
       </div>
     </aside>
 
@@ -132,17 +214,19 @@
         </div>
       </div>
 
+      <?php if ($message): ?>
+        <div class="alert"><?php echo h($message); ?></div>
+      <?php endif; ?>
+
       <section class="products-shell">
         <div class="products-toolbar">
           <input type="text" class="admin-search" id="productSearch" placeholder="Search product...">
 
           <select class="admin-select" id="categoryFilter">
             <option value="all">All Categories</option>
-            <option value="Hot Drinks">Hot Drinks</option>
-            <option value="Cold Drinks">Cold Drinks</option>
-            <option value="Pastries">Pastries</option>
-            <option value="All-Day Bites">All-Day Bites</option>
-            <option value="Fruit Blends">Fruit Blends</option>
+            <?php foreach ($categories as $category): ?>
+              <option value="<?php echo h($category["category_name"]); ?>"><?php echo h($category["category_name"]); ?></option>
+            <?php endforeach; ?>
           </select>
 
           <select class="admin-select" id="availabilityFilter">
@@ -153,8 +237,8 @@
         </div>
 
         <div class="panel-header">
-          <h2 class="form-title" style="margin:0;">All Products (12)</h2>
-          <span style="font-family:Arial, Helvetica, sans-serif; color:var(--text-muted);">Last updated today</span>
+          <h2 class="form-title" style="margin:0;">All Products (<?php echo count($products); ?>)</h2>
+          <span style="font-family:Arial, Helvetica, sans-serif; color:var(--text-muted);">Loaded from database</span>
         </div>
 
         <div class="table-wrap">
@@ -171,7 +255,72 @@
                 <th>Actions</th>
               </tr>
             </thead>
-            <tbody id="productsTableBody"></tbody>
+            <tbody id="productsTableBody">
+              <?php if (!$products): ?>
+                <tr>
+                  <td colspan="8" class="empty-row">No products found.</td>
+                </tr>
+              <?php endif; ?>
+
+              <?php foreach ($products as $product): ?>
+                <?php
+                  $availabilityText = ((int)$product["is_available"] === 1) ? "Available" : "Hidden";
+                  $imagePath = $product["image_path"] ?: "assets/images/placeholder-product.jpg";
+                ?>
+                <tr 
+                  data-product-name="<?php echo h(strtolower($product["product_name"])); ?>"
+                  data-category="<?php echo h($product["category_name"]); ?>"
+                  data-availability="<?php echo h($availabilityText); ?>"
+                >
+                  <td>
+                    <img src="<?php echo h($imagePath); ?>" alt="<?php echo h($product["product_name"]); ?>" class="product-thumb">
+                  </td>
+
+                  <td>
+                    <div class="product-cell" style="gap:0;">
+                      <div>
+                        <strong><?php echo h($product["product_name"]); ?></strong>
+                        <?php if (!empty($product["description"])): ?>
+                          <small><?php echo h(mb_strimwidth($product["description"], 0, 70, "...")); ?></small>
+                        <?php endif; ?>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td><span class="product-category" style="margin:0;"><?php echo h($product["category_name"]); ?></span></td>
+                  <td>₱<?php echo number_format((float)$product["price"], 2); ?></td>
+
+                  <td>
+                    <?php if (!empty($product["promo_badge"])): ?>
+                      <span class="badge badge-accent"><?php echo h($product["promo_badge"]); ?></span>
+                    <?php else: ?>
+                      —
+                    <?php endif; ?>
+                  </td>
+
+                  <td>
+                    <?php if ((int)$product["is_available"] === 1): ?>
+                      <span class="badge badge-success">Yes</span>
+                    <?php else: ?>
+                      <span class="badge badge-danger">Hidden</span>
+                    <?php endif; ?>
+                  </td>
+
+                  <td><?php echo (int)$product["orders_count"]; ?></td>
+
+                  <td>
+                    <div class="action-row">
+                      <a href="admin-product-form.php?id=<?php echo (int)$product["product_id"]; ?>" class="mini-btn edit">✎ Edit</a>
+
+                      <form method="POST" onsubmit="return confirm('Are you sure you want to delete this product?');">
+                        <input type="hidden" name="delete_product_id" value="<?php echo (int)$product["product_id"]; ?>">
+                        <button type="submit" class="mini-btn delete">🗑 Delete</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
           </table>
         </div>
       </section>
@@ -180,139 +329,29 @@
 
   <script src="script.js"></script>
   <script>
-        document.addEventListener("DOMContentLoaded", () => {
-          const mockProducts = [
-        {
-          image: "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=300&q=80",
-          name: "Signature Cat Latte",
-          category: "Hot Drinks",
-          price: 85,
-          badge: "10% OFF",
-          availability: "Available",
-          orders: 142
-        },
-        {
-          image: "https://images.unsplash.com/photo-1517705008128-361805f42e86?auto=format&fit=crop&w=300&q=80",
-          name: "Matcha Cloud",
-          category: "Cold Drinks",
-          price: 110,
-          badge: "—",
-          availability: "Available",
-          orders: 98
-        },
-        {
-          image: "https://images.unsplash.com/photo-1563729784474-d77dbb933a9e?auto=format&fit=crop&w=300&q=80",
-          name: "Matcha Cheesecake",
-          category: "Pastries",
-          price: 120,
-          badge: "Buy 2 Get 1",
-          availability: "Available",
-          orders: 76
-        },
-        {
-          image: "https://images.unsplash.com/photo-1576618148400-f54bed99fcfd?auto=format&fit=crop&w=300&q=80",
-          name: "Paw Print Cupcake",
-          category: "Pastries",
-          price: 65,
-          badge: "—",
-          availability: "Available",
-          orders: 65
-        },
-        {
-          image: "https://images.unsplash.com/photo-1558857563-b371033873b8?auto=format&fit=crop&w=300&q=80",
-          name: "Brown Sugar Milk Tea",
-          category: "Cold Drinks",
-          price: 95,
-          badge: "—",
-          availability: "Available",
-          orders: 89
-        },
-        {
-          image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=300&q=80",
-          name: "Cafe Club Sandwich",
-          category: "All-Day Bites",
-          price: 155,
-          badge: "New",
-          availability: "Available",
-          orders: 34
-        },
-        {
-          image: "https://images.unsplash.com/photo-1546173159-315724a31696?auto=format&fit=crop&w=300&q=80",
-          name: "Mango Passion Cooler",
-          category: "Fruit Blends",
-          price: 90,
-          badge: "—",
-          availability: "Hidden",
-          orders: 22
-        },
-        {
-          image: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=300&q=80",
-          name: "Caramel Macchiato",
-          category: "Hot Drinks",
-          price: 105,
-          badge: "—",
-          availability: "Available",
-          orders: 57
-        }
-      ];
-
-      const tableBody = document.getElementById("productsTableBody");
+    document.addEventListener("DOMContentLoaded", () => {
+      const rows = Array.from(document.querySelectorAll("#productsTableBody tr[data-product-name]"));
       const productSearch = document.getElementById("productSearch");
       const categoryFilter = document.getElementById("categoryFilter");
       const availabilityFilter = document.getElementById("availabilityFilter");
 
-      function renderProducts() {
+      function filterProducts() {
         const searchValue = productSearch.value.trim().toLowerCase();
         const categoryValue = categoryFilter.value;
         const availabilityValue = availabilityFilter.value;
 
-        const filtered = mockProducts.filter(product => {
-          const matchesSearch = product.name.toLowerCase().includes(searchValue);
-          const matchesCategory = categoryValue === "all" || product.category === categoryValue;
-          const matchesAvailability = availabilityValue === "all" || product.availability === availabilityValue;
-          return matchesSearch && matchesCategory && matchesAvailability;
-        });
+        rows.forEach(row => {
+          const matchesSearch = row.dataset.productName.includes(searchValue);
+          const matchesCategory = categoryValue === "all" || row.dataset.category === categoryValue;
+          const matchesAvailability = availabilityValue === "all" || row.dataset.availability === availabilityValue;
 
-        tableBody.innerHTML = filtered.map(product => `
-          <tr>
-            <td><img src="${product.image}" alt="${product.name}" class="product-thumb"></td>
-            <td>
-              <div class="product-cell" style="gap:0;">
-                <div>
-                  <strong>${product.name}</strong>
-                </div>
-              </div>
-            </td>
-            <td><span class="product-category" style="margin:0;">${product.category}</span></td>
-            <td>₱${product.price.toFixed(2)}</td>
-            <td>${product.badge === "—" ? "—" : `<span class="badge badge-accent">${product.badge}</span>`}</td>
-            <td>
-              ${product.availability === "Available"
-                ? `<span class="badge badge-success">Yes</span>`
-                : `<span class="badge badge-danger">Hidden</span>`}
-            </td>
-            <td>${product.orders}</td>
-            <td>
-              <div class="action-row">
-                <a href="admin-product-form.php" class="mini-btn edit">✎ Edit</a>
-                <button class="mini-btn delete" data-delete="${product.name}">🗑</button>
-              </div>
-            </td>
-          </tr>
-        `).join("");
+          row.style.display = matchesSearch && matchesCategory && matchesAvailability ? "" : "none";
+        });
       }
 
-      productSearch.addEventListener("input", renderProducts);
-      categoryFilter.addEventListener("change", renderProducts);
-      availabilityFilter.addEventListener("change", renderProducts);
-
-      tableBody.addEventListener("click", (event) => {
-        const deleteBtn = event.target.closest("[data-delete]");
-        if (!deleteBtn) return;
-        alert(`${deleteBtn.dataset.delete} deleted. Demo only.`);
-      });
-
-      renderProducts();
+      productSearch.addEventListener("input", filterProducts);
+      categoryFilter.addEventListener("change", filterProducts);
+      availabilityFilter.addEventListener("change", filterProducts);
     });
   </script>
 </body>
