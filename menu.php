@@ -1,4 +1,74 @@
-<?php require_once "includes/auth.php"; ?>
+<?php
+require_once "includes/auth.php";
+require_once "includes/db.php";
+
+$categoryStmt = $conn->prepare("
+    SELECT category_id, category_name, category_slug
+    FROM categories
+    WHERE is_active = 1
+    ORDER BY display_order ASC, category_name ASC
+");
+$categoryStmt->execute();
+$categories = $categoryStmt->fetchAll();
+
+$productStmt = $conn->prepare("
+    SELECT
+        p.product_id,
+        p.product_name,
+        p.description,
+        p.price,
+        p.image_path,
+        p.promo_badge,
+        p.is_available,
+        p.is_featured,
+        p.is_bestseller,
+        c.category_name,
+        c.category_slug
+    FROM products p
+    INNER JOIN categories c ON p.category_id = c.category_id
+    WHERE p.is_available = 1
+    ORDER BY p.display_order ASC, p.product_name ASC
+");
+$productStmt->execute();
+$products = $productStmt->fetchAll();
+
+function e($value) {
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+}
+
+function peso($value) {
+    return "₱" . number_format((float)$value, 2);
+}
+
+function product_image($path) {
+    if (!$path) {
+        return "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80";
+    }
+
+    return $path;
+}
+
+$counts = ["all" => count($products)];
+
+foreach ($categories as $category) {
+    $counts[$category["category_slug"]] = 0;
+}
+
+foreach ($products as $product) {
+    $slug = $product["category_slug"];
+    if (!isset($counts[$slug])) {
+        $counts[$slug] = 0;
+    }
+    $counts[$slug]++;
+}
+
+$activeCategory = $_GET["category"] ?? "all";
+$validSlugs = array_merge(["all"], array_column($categories, "category_slug"));
+
+if (!in_array($activeCategory, $validSlugs, true)) {
+    $activeCategory = "all";
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12,7 +82,7 @@
   <header class="site-header">
     <div class="container navbar">
       <a href="index.php" class="brand" aria-label="FurrfectCafe home">
-        <span class="brand-mark">CAFE</span>
+        <span class="brand-mark">FC</span>
         <span class="brand-name">FurrfectCafe</span>
       </a>
 
@@ -54,12 +124,19 @@
   <section class="section-sm">
     <div class="container">
       <div class="mobile-category-scroll">
-        <button type="button" class="menu-category-btn active" data-menu-category="all">All <span>12</span></button>
-        <button type="button" class="menu-category-btn" data-menu-category="hot-drinks">Hot Drinks <span>2</span></button>
-        <button type="button" class="menu-category-btn" data-menu-category="cold-drinks">Cold Drinks <span>3</span></button>
-        <button type="button" class="menu-category-btn" data-menu-category="pastries">Pastries <span>3</span></button>
-        <button type="button" class="menu-category-btn" data-menu-category="all-day-bites">All-Day Bites <span>2</span></button>
-        <button type="button" class="menu-category-btn" data-menu-category="fruit-blends">Fruit Blends <span>2</span></button>
+        <button type="button" class="menu-category-btn <?php echo $activeCategory === 'all' ? 'active' : ''; ?>" data-menu-category="all">
+          All <span><?php echo (int)$counts["all"]; ?></span>
+        </button>
+
+        <?php foreach ($categories as $category): ?>
+          <button
+            type="button"
+            class="menu-category-btn <?php echo $activeCategory === $category["category_slug"] ? 'active' : ''; ?>"
+            data-menu-category="<?php echo e($category["category_slug"]); ?>">
+            <?php echo e($category["category_name"]); ?>
+            <span><?php echo (int)($counts[$category["category_slug"]] ?? 0); ?></span>
+          </button>
+        <?php endforeach; ?>
       </div>
 
       <div class="menu-layout">
@@ -67,12 +144,19 @@
           <h2 class="menu-sidebar-title">Categories</h2>
 
           <div class="menu-category-list">
-            <button type="button" class="menu-category-btn active" data-menu-category="all">All <span>12</span></button>
-            <button type="button" class="menu-category-btn" data-menu-category="hot-drinks">Hot Drinks <span>2</span></button>
-            <button type="button" class="menu-category-btn" data-menu-category="cold-drinks">Cold Drinks <span>3</span></button>
-            <button type="button" class="menu-category-btn" data-menu-category="pastries">Pastries <span>3</span></button>
-            <button type="button" class="menu-category-btn" data-menu-category="all-day-bites">All-Day Bites <span>2</span></button>
-            <button type="button" class="menu-category-btn" data-menu-category="fruit-blends">Fruit Blends <span>2</span></button>
+            <button type="button" class="menu-category-btn <?php echo $activeCategory === 'all' ? 'active' : ''; ?>" data-menu-category="all">
+              All <span><?php echo (int)$counts["all"]; ?></span>
+            </button>
+
+            <?php foreach ($categories as $category): ?>
+              <button
+                type="button"
+                class="menu-category-btn <?php echo $activeCategory === $category["category_slug"] ? 'active' : ''; ?>"
+                data-menu-category="<?php echo e($category["category_slug"]); ?>">
+                <?php echo e($category["category_name"]); ?>
+                <span><?php echo (int)($counts[$category["category_slug"]] ?? 0); ?></span>
+              </button>
+            <?php endforeach; ?>
           </div>
         </aside>
 
@@ -80,10 +164,10 @@
           <div class="menu-top-tools">
             <div class="search-wrap">
               <span>🔎</span>
-              <input type="text" id="menuSearch" placeholder="Search menu items...">
+              <input type="search" id="databaseMenuSearch" placeholder="Search coffee, pastries, sandwiches..." autocomplete="off">
             </div>
 
-            <select class="menu-sort" id="menuSort">
+            <select id="databaseMenuSort" class="menu-sort" aria-label="Sort menu">
               <option value="default">Sort: Featured</option>
               <option value="price-low">Price: Low to High</option>
               <option value="price-high">Price: High to Low</option>
@@ -94,10 +178,49 @@
           <p class="menu-active-label">
             Showing: <strong id="activeCategoryLabel">All Items</strong>
             <span>•</span>
-            <span><strong data-menu-count>0</strong> items found</span>
+            <span><strong data-menu-count><?php echo (int)count($products); ?></strong> items found</span>
           </p>
 
-          <div class="grid menu-grid compact-products mt-24" id="menuGrid"></div>
+          <div class="grid menu-grid compact-products mt-24" id="databaseMenuGrid">
+            <?php foreach ($products as $product): ?>
+              <article
+                class="product-card card simple-menu-card database-product-card"
+                data-name="<?php echo e(strtolower($product["product_name"])); ?>"
+                data-description="<?php echo e(strtolower($product["description"] ?? "")); ?>"
+                data-category="<?php echo e($product["category_slug"]); ?>"
+                data-category-label="<?php echo e($product["category_name"]); ?>"
+                data-price="<?php echo e($product["price"]); ?>">
+
+                <a href="product.php?id=<?php echo (int)$product["product_id"]; ?>" class="product-media" aria-label="View <?php echo e($product["product_name"]); ?>">
+                  <?php if (!empty($product["promo_badge"])): ?>
+                    <div class="product-badge-wrap">
+                      <span class="badge badge-accent"><?php echo e($product["promo_badge"]); ?></span>
+                    </div>
+                  <?php endif; ?>
+
+                  <img
+                    src="<?php echo e(product_image($product["image_path"])); ?>"
+                    alt="<?php echo e($product["product_name"]); ?>"
+                    onerror="this.src='https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=900&q=80';">
+                </a>
+
+                <div class="product-body simple-menu-body">
+                  <h3 class="product-title">
+                    <a href="product.php?id=<?php echo (int)$product["product_id"]; ?>">
+                      <?php echo e($product["product_name"]); ?>
+                    </a>
+                  </h3>
+
+                  <div class="price"><?php echo peso($product["price"]); ?></div>
+                </div>
+              </article>
+            <?php endforeach; ?>
+          </div>
+
+          <div class="empty-state hidden" id="databaseMenuEmpty">
+            <h3>No items found</h3>
+            <p class="section-text">Try another search keyword or category.</p>
+          </div>
         </main>
       </div>
     </div>
@@ -107,7 +230,7 @@
     <div class="container footer-inner">
       <div>
         <div class="footer-brand">
-          <span class="brand-mark">CAFE</span>
+          <span class="brand-mark">FC</span>
           <strong class="brand-name">FurrfectCafe</strong>
         </div>
 
@@ -165,24 +288,24 @@
   <script src="script.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", () => {
-      const menuGrid = document.getElementById("menuGrid");
-      const searchInput = document.getElementById("menuSearch");
-      const sortSelect = document.getElementById("menuSort");
+      const grid = document.getElementById("databaseMenuGrid");
+      const cards = Array.from(document.querySelectorAll(".database-product-card"));
+      const searchInput = document.getElementById("databaseMenuSearch");
+      const sortSelect = document.getElementById("databaseMenuSort");
       const categoryButtons = document.querySelectorAll("[data-menu-category]");
       const activeCategoryLabel = document.getElementById("activeCategoryLabel");
       const countEl = document.querySelector("[data-menu-count]");
+      const emptyState = document.getElementById("databaseMenuEmpty");
 
-      const products = window.FurrfectCafe.products;
-      const categories = window.FurrfectCafe.categories;
-
-      const params = new URLSearchParams(window.location.search);
-      let activeCategory = params.get("category") || "all";
+      let activeCategory = "<?php echo e($activeCategory); ?>";
       let activeSearch = "";
       let activeSort = "default";
 
       function getCategoryLabel(categoryId) {
-        const category = categories.find(item => item.id === categoryId);
-        return category ? category.name : "All Items";
+        if (categoryId === "all") return "All Items";
+
+        const button = Array.from(categoryButtons).find(item => item.dataset.menuCategory === categoryId);
+        return button ? button.childNodes[0].textContent.trim() : "All Items";
       }
 
       function syncCategoryButtons() {
@@ -191,37 +314,39 @@
         });
       }
 
-      function getFilteredProducts() {
-        let items = products.filter(product => {
-          const matchesCategory = activeCategory === "all" || product.category === activeCategory;
-          const haystack = `${product.name} ${product.categoryLabel} ${product.description}`.toLowerCase();
+      function renderMenu() {
+        let visibleCards = cards.filter(card => {
+          const haystack = `${card.dataset.name} ${card.dataset.description} ${card.dataset.categoryLabel}`.toLowerCase();
           const matchesSearch = haystack.includes(activeSearch.toLowerCase());
+          const matchesCategory = activeCategory === "all" || card.dataset.category === activeCategory;
 
-          return matchesCategory && matchesSearch;
+          return matchesSearch && matchesCategory;
         });
 
         if (activeSort === "price-low") {
-          items = [...items].sort((a, b) => a.price - b.price);
+          visibleCards = visibleCards.sort((a, b) => Number(a.dataset.price) - Number(b.dataset.price));
         }
 
         if (activeSort === "price-high") {
-          items = [...items].sort((a, b) => b.price - a.price);
+          visibleCards = visibleCards.sort((a, b) => Number(b.dataset.price) - Number(a.dataset.price));
         }
 
         if (activeSort === "name") {
-          items = [...items].sort((a, b) => a.name.localeCompare(b.name));
+          visibleCards = visibleCards.sort((a, b) => a.dataset.name.localeCompare(b.dataset.name));
         }
 
-        return items;
-      }
+        cards.forEach(card => {
+          card.classList.add("hidden");
+        });
 
-      function renderMenu() {
-        const items = getFilteredProducts();
+        visibleCards.forEach(card => {
+          card.classList.remove("hidden");
+          grid.appendChild(card);
+        });
 
-        window.FurrfectCafe.renderProductGrid("#menuGrid", items);
-
-        countEl.textContent = items.length;
-        activeCategoryLabel.textContent = activeCategory === "all" ? "All Items" : getCategoryLabel(activeCategory);
+        countEl.textContent = visibleCards.length;
+        activeCategoryLabel.textContent = getCategoryLabel(activeCategory);
+        emptyState.classList.toggle("hidden", visibleCards.length > 0);
 
         syncCategoryButtons();
       }
