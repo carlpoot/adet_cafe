@@ -316,7 +316,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
   <main class="portal-page">
     <section class="portal-panel">
       <div class="portal-panel-content">
-        <a href="index.php" class="portal-back-link">← Back to Home</a>
 
         <div class="portal-brand">
           <span class="brand-mark">CAFE</span>

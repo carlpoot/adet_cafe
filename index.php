@@ -200,6 +200,7 @@
     <div class="container footer-inner">
       <div>
         <div class="footer-brand">
+          <span class="brand-mark">CAFE</span>
           <strong class="brand-name">FurrfectCafe</strong>
         </div>
 

@@ -2015,3 +2015,23 @@ tbody tr:hover {
     flex-direction: column;
   }
 }
+
+.portal-brand .brand-mark,
+.admin-sidebar .brand-mark,
+.brand-mark {
+  color: #4b2617 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  font-family: Arial, Helvetica, sans-serif !important;
+  line-height: 1 !important;
+  letter-spacing: -0.5px !important;
+  text-indent: 0 !important;
+  text-shadow: none !important;
+  background-color: #fffaf5 !important;
+  border: 1px solid #e4d5c4 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
