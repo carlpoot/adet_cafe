@@ -2015,23 +2015,65 @@ tbody tr:hover {
     flex-direction: column;
   }
 }
+.portal-tabs.customer-only {
+  grid-template-columns: 1fr !important;
+}
 
-.portal-brand .brand-mark,
-.admin-sidebar .brand-mark,
-.brand-mark {
-  color: #4b2617 !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-  font-size: 12px !important;
-  font-weight: 900 !important;
-  font-family: Arial, Helvetica, sans-serif !important;
-  line-height: 1 !important;
-  letter-spacing: -0.5px !important;
-  text-indent: 0 !important;
-  text-shadow: none !important;
-  background-color: #fffaf5 !important;
-  border: 1px solid #e4d5c4 !important;
-  display: inline-flex !important;
+.portal-tabs.admin-visible {
+  grid-template-columns: repeat(2, 1fr) !important;
+}
+
+.admin-tab-hidden {
+  display: none !important;
+}
+
+.hidden-admin-access {
+  text-align: center;
+  margin: 14px 0 0;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.subtle-admin-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: rgba(113, 95, 85, 0.55);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.subtle-admin-btn:hover {
+  color: var(--accent);
+}
+
+.portal-tabs {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.portal-tab {
+  display: flex !important;
   align-items: center !important;
   justify-content: center !important;
+  text-align: center !important;
+  width: 100% !important;
+  min-height: 48px !important;
+  padding: 0 16px !important;
+}
+
+.portal-tab.admin-tab-hidden {
+  display: none !important;
+}
+
+.portal-tabs:not(.admin-visible) {
+  grid-template-columns: 1fr !important;
+}
+
+.portal-tabs.admin-visible {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
 }

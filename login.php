@@ -3,11 +3,13 @@ session_start();
 require_once "includes/db.php";
 
 $message = "";
+$showAdminPanel = false;
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $email = trim($_POST["email"] ?? "");
     $password = $_POST["password"] ?? "";
     $loginType = $_POST["login_type"] ?? "customer";
+    $showAdminPanel = $loginType === "admin";
 
     if ($email === "" || $password === "") {
         $message = "Please enter your email and password.";
@@ -344,12 +346,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
           <div class="admin-note" style="margin-bottom:16px;"><?php echo htmlspecialchars($message); ?></div>
         <?php endif; ?>
 
-        <div class="portal-tabs">
-          <button type="button" class="portal-tab active" data-target="customerPanel">Customer Login</button>
-          <button type="button" class="portal-tab" data-target="adminPanel">Admin Login</button>
+        <div class="portal-tabs <?php echo $showAdminPanel ? 'admin-visible' : 'customer-only'; ?>" id="portalTabs">
+          <button type="button" class="portal-tab <?php echo $showAdminPanel ? '' : 'active'; ?>" data-target="customerPanel">Customer Login</button>
+          <button type="button" class="portal-tab <?php echo $showAdminPanel ? 'active' : 'admin-tab-hidden'; ?>" id="adminTabBtn" data-target="adminPanel">Admin Login</button>
         </div>
 
-        <section class="login-panel active" id="customerPanel">
+        <section class="login-panel <?php echo $showAdminPanel ? '' : 'active'; ?>" id="customerPanel">
           <form id="customerLoginForm" class="form-grid" method="POST" action="login.php">
             <input type="hidden" name="login_type" value="customer">
             <div class="field">
@@ -387,9 +389,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
           <div class="demo-note">
             Customer account: customer@furrfectcafe.ph / customer123
           </div>
+
+          <p class="hidden-admin-access">
+            <button type="button" id="showAdminLoginBtn" class="subtle-admin-btn">
+              Staff / Admin Login
+            </button>
+          </p>
         </section>
 
-        <section class="login-panel" id="adminPanel">
+        <section class="login-panel <?php echo $showAdminPanel ? 'active' : ''; ?>" id="adminPanel">
           <form id="adminLoginForm" class="form-grid" method="POST" action="login.php">
             <input type="hidden" name="login_type" value="admin">
             <div class="field">
@@ -415,6 +423,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
           <div class="admin-note">
             Admin account: admin@furrfectcafe.ph / admin123
           </div>
+
+          <p class="hidden-admin-access">
+            <button type="button" id="hideAdminLoginBtn" class="subtle-admin-btn">
+              Hide Admin Login
+            </button>
+          </p>
         </section>
       </div>
     </section>
@@ -424,6 +438,49 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     document.addEventListener("DOMContentLoaded", () => {
       const tabs = document.querySelectorAll(".portal-tab");
       const panels = document.querySelectorAll(".login-panel");
+      const showAdminLoginBtn = document.getElementById("showAdminLoginBtn");
+      const hideAdminLoginBtn = document.getElementById("hideAdminLoginBtn");
+      const adminTabBtn = document.getElementById("adminTabBtn");
+      const customerTabBtn = document.querySelector('[data-target="customerPanel"]');
+      const customerPanel = document.getElementById("customerPanel");
+      const adminPanel = document.getElementById("adminPanel");
+      const portalTabs = document.getElementById("portalTabs");
+
+      if (showAdminLoginBtn && adminTabBtn && adminPanel) {
+        showAdminLoginBtn.addEventListener("click", () => {
+          adminTabBtn.classList.remove("admin-tab-hidden");
+          adminTabBtn.style.display = "inline-flex";
+
+          if (portalTabs) {
+            portalTabs.classList.remove("customer-only");
+            portalTabs.classList.add("admin-visible");
+          }
+
+          tabs.forEach(item => item.classList.remove("active"));
+          panels.forEach(panel => panel.classList.remove("active"));
+
+          adminTabBtn.classList.add("active");
+          adminPanel.classList.add("active");
+        });
+      }
+
+      if (hideAdminLoginBtn && adminTabBtn && customerTabBtn && customerPanel && adminPanel) {
+        hideAdminLoginBtn.addEventListener("click", () => {
+          adminTabBtn.classList.add("admin-tab-hidden");
+          adminTabBtn.style.display = "none";
+
+          if (portalTabs) {
+            portalTabs.classList.remove("admin-visible");
+            portalTabs.classList.add("customer-only");
+          }
+
+          tabs.forEach(item => item.classList.remove("active"));
+          panels.forEach(panel => panel.classList.remove("active"));
+
+          customerTabBtn.classList.add("active");
+          customerPanel.classList.add("active");
+        });
+      }
 
       tabs.forEach(tab => {
         tab.addEventListener("click", () => {
