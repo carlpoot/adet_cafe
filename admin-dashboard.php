@@ -40,9 +40,7 @@
           </div>
         </div>
 
-        <button type="button" class="admin-logout-btn" data-admin-logout>
-          Logout
-        </button>
+        <a href="logout.php" class="admin-logout-btn">Logout</a>
       </div>
     </aside>
 
@@ -53,7 +51,7 @@
         <div class="admin-toolbar-right">
           <span>Today: Sun, Mar 22 2026</span>
           <a href="index.php" class="btn btn-secondary btn-sm">View Site</a>
-          <button type="button" class="btn btn-secondary btn-sm" data-admin-logout>Logout</button>
+          <a href="logout.php" class="btn btn-secondary btn-sm">Logout</a>
         </div>
       </div>
 

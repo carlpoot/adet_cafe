@@ -546,13 +546,15 @@ $currentImage = $product["image_path"] ?? "";
         if (!file) return;
 
         if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
-          alert("Please upload a PNG, JPG, or WEBP image only.");
+          uploadHelp.textContent = "Please upload a PNG, JPG, or WEBP image only.";
+          uploadHelp.style.color = "var(--danger)";
           productImage.value = "";
           return;
         }
 
         if (file.size > 5 * 1024 * 1024) {
-          alert("Image must be 5MB or below.");
+          uploadHelp.textContent = "Image must be 5MB or below.";
+          uploadHelp.style.color = "var(--danger)";
           productImage.value = "";
           return;
         }
@@ -564,6 +566,7 @@ $currentImage = $product["image_path"] ?? "";
           imagePreview.style.display = "block";
           uploadTitle.textContent = file.name;
           uploadHelp.textContent = "Image selected. Click Save Product to upload.";
+          uploadHelp.style.color = "var(--text-muted)";
         };
 
         reader.readAsDataURL(file);
@@ -609,8 +612,7 @@ $currentImage = $product["image_path"] ?? "";
 
           uploadTitle.textContent = "Drop image here or click to browse";
           uploadHelp.textContent = "PNG, JPG, WEBP up to 5MB • Recommended 800×600";
-
-          alert("Selected image has been cleared.");
+          uploadHelp.style.color = "var(--text-muted)";
         });
       }
     });

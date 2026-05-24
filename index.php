@@ -12,7 +12,7 @@
   <header class="site-header">
     <div class="container navbar">
       <a href="index.php" class="brand" aria-label="FurrfectCafe home">
-        <span class="brand-mark">CAFE</span>
+        <span class="brand-mark">FC</span>
         <span class="brand-name">FurrfectCafe</span>
       </a>
 
@@ -31,9 +31,9 @@
 
         <a href="profile.php" class="btn btn-secondary btn-sm">👤 Profile</a>
 
-        <button type="button" class="btn btn-secondary btn-sm" data-customer-logout>
+        <a href="logout.php" class="btn btn-secondary btn-sm">
           Logout
-        </button>
+        </a>
       </div>
 
       <button class="menu-toggle" aria-label="Open menu" aria-expanded="false">☰</button>
@@ -47,7 +47,7 @@
           <div>
             <div class="hero-badge">📍 Now delivering in Legazpi City</div>
 
-            <h1 class="hero-title">Good food, great <em>vibes</em>, happy cats.</h1>
+            <h1 class="hero-title">Good food, great <em>vibes</em>,cozy moments.</h1>
 
             <p class="hero-text">
               Order your favorite drinks and bites from FurrfectCafe. Pick up or get it delivered,

@@ -312,7 +312,7 @@ function h($value) {
                     <div class="action-row">
                       <a href="admin-product-form.php?id=<?php echo (int)$product["product_id"]; ?>" class="mini-btn edit">✎ Edit</a>
 
-                      <form method="POST" onsubmit="return confirm('Are you sure you want to delete this product?');">
+                      <form method="POST">
                         <input type="hidden" name="delete_product_id" value="<?php echo (int)$product["product_id"]; ?>">
                         <button type="submit" class="mini-btn delete">🗑 Delete</button>
                       </form>

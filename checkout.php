@@ -417,6 +417,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"]) && $_POST["
             <strong id="summaryTotal">₱0.00</strong>
           </div>
 
+          <div class="form-help mt-16" id="checkoutMessage" aria-live="polite"></div>
           <button class="btn btn-primary btn-full mt-24" id="placeOrderBtn">✔ Place Order</button>
         </aside>
       </div>
@@ -433,6 +434,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"]) && $_POST["
       const deliveryOptions = document.getElementById("deliveryOptions");
       const scheduleOptions = document.getElementById("scheduleOptions");
       const placeOrderBtn = document.getElementById("placeOrderBtn");
+      const checkoutMessage = document.getElementById("checkoutMessage");
 
       let orderType = "Delivery";
       let scheduleType = "Order Now";
@@ -537,11 +539,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"]) && $_POST["
         document.getElementById("streetAddress").value = user.fullAddress || "";
       }
 
+      function showCheckoutMessage(message, type = "info") {
+        if (!checkoutMessage) return;
+        checkoutMessage.textContent = message;
+        checkoutMessage.style.color = type === "error" ? "var(--danger)" : "var(--text-muted)";
+      }
+
       async function placeDatabaseOrder() {
         const cart = getCart();
+        showCheckoutMessage("");
 
         if (!cart.length) {
-          alert("Your cart is empty. Please add an item first.");
           window.location.href = "menu.php";
           return;
         }
@@ -552,17 +560,20 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"]) && $_POST["
         const orderNotes = document.getElementById("orderNotes").value.trim();
 
         if (!fullName) {
-          alert("Please enter your full name.");
+          showCheckoutMessage("Please enter your full name.", "error");
+          document.getElementById("fullName").focus();
           return;
         }
 
         if (!contactNumber) {
-          alert("Please enter your contact number.");
+          showCheckoutMessage("Please enter your contact number.", "error");
+          document.getElementById("contactNumber").focus();
           return;
         }
 
         if (!streetAddress) {
-          alert("Please enter your address.");
+          showCheckoutMessage("Please enter your address.", "error");
+          document.getElementById("streetAddress").focus();
           return;
         }
 
@@ -578,6 +589,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"]) && $_POST["
 
         placeOrderBtn.disabled = true;
         placeOrderBtn.textContent = "Saving order...";
+        showCheckoutMessage("Saving your order...");
 
         try {
           const response = await fetch("checkout.php", {
@@ -592,10 +604,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"]) && $_POST["
           }
 
           clearCart();
-          alert("Order placed successfully. Your order has been saved.");
           window.location.href = `order-confirmation.php?id=${result.order_id}`;
         } catch (error) {
-          alert(error.message || "Something went wrong while saving the order.");
+          showCheckoutMessage(error.message || "Something went wrong while saving the order.", "error");
           placeOrderBtn.disabled = false;
           placeOrderBtn.textContent = "✔ Place Order";
         }

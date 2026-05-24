@@ -302,7 +302,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
       </div>
 
       <p class="register-hint" style="position:relative; z-index:1; margin:0;">
-        Good food, great vibes, happy cats.
+        Good food, great vibes, cozy moments.
       </p>
     </section>
 

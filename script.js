@@ -498,45 +498,7 @@ function createProductCard(product) {
   }
 
   function showToast(message) {
-    let toast = document.querySelector(".demo-toast");
-
-    if (!toast) {
-      toast = document.createElement("div");
-      toast.className = "demo-toast";
-
-      Object.assign(toast.style, {
-        position: "fixed",
-        right: "18px",
-        bottom: "18px",
-        zIndex: "9999",
-        background: "#4b2617",
-        color: "#fff",
-        padding: "14px 18px",
-        borderRadius: "16px",
-        boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        fontSize: "0.95rem",
-        opacity: "0",
-        transform: "translateY(10px)",
-        transition: "all 0.25s ease"
-      });
-
-      document.body.appendChild(toast);
-    }
-
-    toast.textContent = message;
-
-    requestAnimationFrame(() => {
-      toast.style.opacity = "1";
-      toast.style.transform = "translateY(0)";
-    });
-
-    clearTimeout(toast._hideTimer);
-
-    toast._hideTimer = setTimeout(() => {
-      toast.style.opacity = "0";
-      toast.style.transform = "translateY(10px)";
-    }, 1800);
+    return;
   }
 
   function initMobileMenu() {

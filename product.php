@@ -648,7 +648,6 @@ $productForJs = [
         }
 
         saveCart(cart);
-        alert(`${product.name} added to cart.`);
       }
 
       thumbnailGallery?.addEventListener("click", event => {

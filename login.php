@@ -320,18 +320,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
       <div class="portal-panel-content">
 
         <div class="portal-brand">
-          <span class="brand-mark">CAFE</span>
+          <span class="brand-mark">FC</span>
           <span class="brand-name">FurrfectCafe</span>
         </div>
 
         <h1>Welcome to FurrfectCafe</h1>
         <p>
-          Use this single login portal to access both the customer side and the admin side during your demo.
+          Sign in to start ordering your favorite drinks, pastries, and café bites from FurrfectCafe.
         </p>
       </div>
 
       <p style="position:relative; z-index:1; font-family:Arial, Helvetica, sans-serif; color:rgba(255,255,255,0.72); margin:0;">
-        Good food, great vibes, happy cats.
+        Good food, great vibes, cozy moments.
       </p>
     </section>
 
@@ -506,13 +506,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
       if (forgotPasswordBtn) {
         forgotPasswordBtn.addEventListener("click", () => {
-          alert("Forgot password is a front-end demo only.");
+          const note = document.querySelector("#customerPanel .demo-note");
+          if (note) note.textContent = "Forgot password is disabled in this demo version.";
         });
       }
 
       if (googleLoginBtn) {
         googleLoginBtn.addEventListener("click", () => {
-          alert("Google login is a front-end demo only.");
+          const note = document.querySelector("#customerPanel .demo-note");
+          if (note) note.textContent = "Google login is for the demo only nyark.";
         });
       }
     });

@@ -2,63 +2,123 @@
 require_once "includes/admin-auth.php";
 require_once "includes/db.php";
 
-if ($_SERVER["REQUEST_METHOD"] === "POST" && isset($_POST["action"]) && $_POST["action"] === "update_status") {
-    header("Content-Type: application/json");
 
-    try {
-        $orderId = (int) ($_POST["order_id"] ?? 0);
-        $newStatus = strtolower(trim($_POST["status"] ?? ""));
-        $allowed = ["pending", "preparing", "ready", "delivered", "cancelled"];
+function autoStatusConfig() {
+    return [
+        "pending_seconds" => 20,
+        "preparing_seconds" => 60,
+        "ready_seconds" => 100
+    ];
+}
 
-        if ($orderId <= 0 || !in_array($newStatus, $allowed, true)) {
-            throw new Exception("Invalid order status update.");
+function getAutomaticOrderStatus($createdAt, $currentStatus) {
+    if ($currentStatus === "cancelled") {
+        return "cancelled";
+    }
+
+    $config = autoStatusConfig();
+    $createdTimestamp = strtotime($createdAt);
+
+    if (!$createdTimestamp) {
+        return $currentStatus ?: "pending";
+    }
+
+    $elapsedSeconds = time() - $createdTimestamp;
+
+    if ($elapsedSeconds < $config["pending_seconds"]) {
+        return "pending";
+    }
+
+    if ($elapsedSeconds < $config["preparing_seconds"]) {
+        return "preparing";
+    }
+
+    if ($elapsedSeconds < $config["ready_seconds"]) {
+        return "ready";
+    }
+
+    return "delivered";
+}
+
+function syncAutomaticOrderStatuses($conn, $userId = null) {
+    $query = "SELECT order_id, order_status, created_at FROM orders WHERE order_status != 'cancelled'";
+    $params = [];
+
+    if ($userId !== null) {
+        $query .= " AND user_id = :user_id";
+        $params[":user_id"] = (int) $userId;
+    }
+
+    $stmt = $conn->prepare($query);
+    $stmt->execute($params);
+    $ordersToCheck = $stmt->fetchAll();
+
+    $updateStmt = $conn->prepare("UPDATE orders SET order_status = :new_status WHERE order_id = :order_id");
+    $historyStmt = $conn->prepare("\n        INSERT INTO order_status_history\n        (order_id, updated_by, old_status, new_status, remarks)\n        VALUES\n        (:order_id, NULL, :old_status, :new_status, 'Automatically updated by system timer')\n    ");
+
+    foreach ($ordersToCheck as $orderToCheck) {
+        $oldStatus = $orderToCheck["order_status"];
+        $newStatus = getAutomaticOrderStatus($orderToCheck["created_at"], $oldStatus);
+
+        if ($newStatus !== $oldStatus) {
+            $updateStmt->execute([
+                ":new_status" => $newStatus,
+                ":order_id" => (int) $orderToCheck["order_id"]
+            ]);
+
+            $historyStmt->execute([
+                ":order_id" => (int) $orderToCheck["order_id"],
+                ":old_status" => $oldStatus,
+                ":new_status" => $newStatus
+            ]);
         }
-
-        $stmt = $conn->prepare("SELECT order_status FROM orders WHERE order_id = :order_id LIMIT 1");
-        $stmt->execute([":order_id" => $orderId]);
-        $order = $stmt->fetch();
-
-        if (!$order) {
-            throw new Exception("Order not found.");
-        }
-
-        $oldStatus = $order["order_status"];
-
-        $updateStmt = $conn->prepare("
-            UPDATE orders
-            SET order_status = :order_status
-            WHERE order_id = :order_id
-        ");
-        $updateStmt->execute([
-            ":order_status" => $newStatus,
-            ":order_id" => $orderId
-        ]);
-
-        $historyStmt = $conn->prepare("
-            INSERT INTO order_status_history
-            (order_id, updated_by, old_status, new_status, remarks)
-            VALUES
-            (:order_id, :updated_by, :old_status, :new_status, 'Updated by admin')
-        ");
-        $historyStmt->execute([
-            ":order_id" => $orderId,
-            ":updated_by" => (int) $_SESSION["user_id"],
-            ":old_status" => $oldStatus,
-            ":new_status" => $newStatus
-        ]);
-
-        echo json_encode(["success" => true]);
-        exit;
-
-    } catch (Throwable $e) {
-        http_response_code(400);
-        echo json_encode([
-            "success" => false,
-            "message" => $e->getMessage()
-        ]);
-        exit;
     }
 }
+
+function peso($value) {
+    return "₱" . number_format((float) $value, 2);
+}
+
+function labelStatus($status) {
+    return ucfirst((string) $status);
+}
+
+function statusBadgeClass($status) {
+    return [
+        "pending" => "badge-warning",
+        "preparing" => "badge-accent",
+        "ready" => "badge-soft",
+        "delivered" => "badge-success",
+        "cancelled" => "badge-danger"
+    ][$status] ?? "badge-soft";
+}
+
+function paymentBadgeClass($status) {
+    return $status === "paid" ? "badge-success" : "badge-danger";
+}
+
+function stepClass($orderStatus, $step) {
+    $steps = ["pending", "preparing", "ready", "delivered"];
+    $current = array_search($orderStatus, $steps, true);
+    $index = array_search($step, $steps, true);
+
+    if ($current === false) {
+        $current = 0;
+    }
+
+    if ($index < $current) {
+        return "done";
+    }
+
+    if ($index === $current) {
+        return "active";
+    }
+
+    return "";
+}
+
+
+syncAutomaticOrderStatuses($conn);
 
 $stmt = $conn->prepare("
     SELECT
@@ -76,24 +136,6 @@ $stmt = $conn->prepare("
 $stmt->execute();
 $orders = $stmt->fetchAll();
 
-function peso($value) {
-    return "₱" . number_format((float) $value, 2);
-}
-
-function displayStatus($status) {
-    return ucfirst($status);
-}
-
-function displayPaymentStatus($status) {
-    return ucfirst($status ?: "unpaid");
-}
-
-function displayPaymentMethod($method) {
-    if ($method === "gcash") return "GCash";
-    if ($method === "card") return "Card";
-    return "Cash";
-}
-
 $statusCounts = [
     "all" => count($orders),
     "pending" => 0,
@@ -106,6 +148,12 @@ foreach ($orders as $order) {
     if (isset($statusCounts[$order["order_status"]])) {
         $statusCounts[$order["order_status"]]++;
     }
+}
+
+function displayPaymentMethod($method) {
+    if ($method === "gcash") return "GCash";
+    if ($method === "card") return "Card";
+    return "Cash";
 }
 ?>
 <!DOCTYPE html>
@@ -120,12 +168,13 @@ foreach ($orders as $order) {
     .toolbar-grid { display: grid; grid-template-columns: 1.3fr 0.8fr 0.8fr 0.7fr; gap: 12px; margin-bottom: 14px; }
     .status-pills { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
     .status-pill { min-height: 40px; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--border); background: #fff; font-family: Arial, Helvetica, sans-serif; color: var(--text-muted); font-weight: 700; }
-    .status-pill.active { background: var(--bg-soft); color: var(--text); border-color: var(--border); }
+    .status-pill.active { background: var(--primary); color: white; border-color: var(--primary); }
     .admin-search, .admin-select { width: 100%; min-height: 52px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); padding: 14px 16px; outline: none; font-family: Arial, Helvetica, sans-serif; }
     .customer-cell strong { display: block; }
     .customer-cell small, .type-cell { font-family: Arial, Helvetica, sans-serif; color: var(--text-muted); }
-    .status-select { min-height: 40px; border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; background: #fff; font-family: Arial, Helvetica, sans-serif; }
-    .view-btn { width: 38px; height: 38px; border-radius: 12px; background: var(--bg-soft); border: 1px solid var(--border); }
+    .view-btn { width: 38px; height: 38px; border-radius: 12px; background: var(--bg-soft); border: 1px solid var(--border); display: inline-grid; place-items: center; }
+    .auto-status { display: inline-flex; align-items: center; gap: 8px; font-family: Arial, Helvetica, sans-serif; color: var(--success); background: rgba(75,155,99,0.12); border: 1px solid rgba(75,155,99,0.22); padding: 9px 12px; border-radius: 999px; font-size: 0.88rem; }
+    .status-now { display: inline-flex; align-items: center; gap: 8px; }
     @media (max-width: 1100px) { .toolbar-grid { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 700px) { .toolbar-grid { grid-template-columns: 1fr; } }
   </style>
@@ -139,14 +188,10 @@ foreach ($orders as $order) {
       </a>
 
       <div class="eyebrow" style="color: rgba(255,255,255,0.45); margin-top: 10px;">Main</div>
-      <nav class="admin-nav">
-        <a href="admin-dashboard.php">Dashboard</a>
-      </nav>
+      <nav class="admin-nav"><a href="admin-dashboard.php">Dashboard</a></nav>
 
       <div class="eyebrow" style="color: rgba(255,255,255,0.45); margin-top: 20px;">Orders</div>
-      <nav class="admin-nav">
-        <a href="admin-orders.php" class="active">Orders <span style="float:right; opacity:0.8;"><?php echo count($orders); ?></span></a>
-      </nav>
+      <nav class="admin-nav"><a href="admin-orders.php" class="active">Orders <span style="float:right; opacity:0.8;"><?php echo count($orders); ?></span></a></nav>
 
       <div class="eyebrow" style="color: rgba(255,255,255,0.45); margin-top: 20px;">Catalog</div>
       <nav class="admin-nav">
@@ -155,6 +200,10 @@ foreach ($orders as $order) {
       </nav>
 
       <div class="admin-sidebar-footer">
+        <div class="admin-user-mini">
+          <div class="admin-user-avatar">A</div>
+          <div><strong style="display:block;">Admin</strong><span style="font-family:Arial, Helvetica, sans-serif; color:rgba(255,255,255,0.65); font-size:0.9rem;">Administrator</span></div>
+        </div>
         <a href="logout.php" class="admin-logout-btn" style="display:grid;place-items:center;">Logout</a>
       </div>
     </aside>
@@ -162,27 +211,28 @@ foreach ($orders as $order) {
     <main class="admin-content">
       <div class="admin-topbar">
         <div>
-          <span class="eyebrow">Admin</span>
-          <h1 class="admin-page-title">Orders</h1>
+          <span class="eyebrow">Orders</span>
+          <h1 class="admin-page-title">☰ Order Status Monitor</h1>
+          <p class="section-text">Statuses update automatically based on order time. This page refreshes every 10 seconds.</p>
         </div>
-
         <div class="admin-toolbar-right">
+          <span class="auto-status">● Auto status active</span>
           <a href="index.php" class="btn btn-secondary btn-sm">View Site</a>
           <a href="logout.php" class="btn btn-secondary btn-sm">Logout</a>
         </div>
       </div>
 
       <section class="orders-shell">
-        <div class="status-pills" id="statusTabs">
-          <button class="status-pill active" data-status="all">All (<?php echo $statusCounts["all"]; ?>)</button>
-          <button class="status-pill" data-status="pending">Pending (<?php echo $statusCounts["pending"]; ?>)</button>
-          <button class="status-pill" data-status="preparing">Preparing (<?php echo $statusCounts["preparing"]; ?>)</button>
-          <button class="status-pill" data-status="ready">Ready (<?php echo $statusCounts["ready"]; ?>)</button>
-          <button class="status-pill" data-status="delivered">Delivered (<?php echo $statusCounts["delivered"]; ?>)</button>
+        <div class="status-pills" id="statusPills">
+          <button type="button" class="status-pill active" data-status="all">All (<?php echo $statusCounts["all"]; ?>)</button>
+          <button type="button" class="status-pill" data-status="pending">Pending (<?php echo $statusCounts["pending"]; ?>)</button>
+          <button type="button" class="status-pill" data-status="preparing">Preparing (<?php echo $statusCounts["preparing"]; ?>)</button>
+          <button type="button" class="status-pill" data-status="ready">Ready (<?php echo $statusCounts["ready"]; ?>)</button>
+          <button type="button" class="status-pill" data-status="delivered">Delivered (<?php echo $statusCounts["delivered"]; ?>)</button>
         </div>
 
         <div class="toolbar-grid">
-          <input class="admin-search" type="search" id="orderSearch" placeholder="Search order or customer">
+          <input type="search" class="admin-search" id="orderSearch" placeholder="Search order or customer">
           <select class="admin-select" id="statusFilter">
             <option value="all">All Statuses</option>
             <option value="pending">Pending</option>
@@ -193,10 +243,10 @@ foreach ($orders as $order) {
           </select>
           <select class="admin-select" id="paymentFilter">
             <option value="all">All Payments</option>
-            <option value="unpaid">Unpaid</option>
             <option value="paid">Paid</option>
+            <option value="unpaid">Unpaid</option>
           </select>
-          <button class="btn btn-secondary btn-full" type="button" onclick="window.location.reload()">Refresh</button>
+          <button type="button" class="btn btn-secondary btn-full" id="refreshBtn">Refresh</button>
         </div>
 
         <div class="table-wrap">
@@ -216,43 +266,22 @@ foreach ($orders as $order) {
               </tr>
             </thead>
             <tbody id="ordersTableBody">
-              <?php if (!$orders): ?>
-                <tr>
-                  <td colspan="10" style="text-align:center; padding:30px;">No database orders found yet.</td>
-                </tr>
-              <?php endif; ?>
-
               <?php foreach ($orders as $order): ?>
-                <tr
-                  data-search="<?php echo strtolower(htmlspecialchars($order["order_number"] . " " . $order["customer_name"] . " " . ($order["email"] ?? ""))); ?>"
-                  data-status="<?php echo htmlspecialchars($order["order_status"]); ?>"
-                  data-payment="<?php echo htmlspecialchars($order["payment_status"]); ?>"
-                >
+                <?php
+                  $paymentStatus = $order["payment_status"] ?: "unpaid";
+                  $searchText = strtolower($order["order_number"] . " " . $order["customer_name"] . " " . ($order["email"] ?? ""));
+                ?>
+                <tr data-status="<?php echo htmlspecialchars($order["order_status"]); ?>" data-payment="<?php echo htmlspecialchars($paymentStatus); ?>" data-search="<?php echo htmlspecialchars($searchText); ?>">
                   <td><strong><?php echo htmlspecialchars($order["order_number"]); ?></strong></td>
-                  <td class="customer-cell">
-                    <strong><?php echo htmlspecialchars($order["customer_name"]); ?></strong>
-                    <small><?php echo htmlspecialchars($order["email"] ?? ""); ?></small>
-                  </td>
-                  <td class="type-cell"><?php echo $order["delivery_type"] === "pickup" ? "🛍 Pick-up" : "🚚 Delivery"; ?></td>
+                  <td class="customer-cell"><strong><?php echo htmlspecialchars($order["customer_name"]); ?></strong><small><?php echo htmlspecialchars($order["email"] ?? "No email"); ?></small></td>
+                  <td class="type-cell"><?php echo $order["delivery_type"] === "pickup" ? "☕ Pick-up" : "🚚 Delivery"; ?></td>
                   <td><?php echo (int) $order["item_count"]; ?></td>
                   <td><?php echo peso($order["total_amount"]); ?></td>
                   <td><?php echo displayPaymentMethod($order["payment_method"] ?? "cod"); ?></td>
-                  <td>
-                    <span class="badge <?php echo $order["payment_status"] === "paid" ? "badge-success" : "badge-danger"; ?>">
-                      <?php echo displayPaymentStatus($order["payment_status"]); ?>
-                    </span>
-                  </td>
-                  <td>
-                    <select class="status-select" data-order-id="<?php echo (int) $order["order_id"]; ?>">
-                      <?php foreach (["pending", "preparing", "ready", "delivered", "cancelled"] as $status): ?>
-                        <option value="<?php echo $status; ?>" <?php echo $order["order_status"] === $status ? "selected" : ""; ?>>
-                          <?php echo displayStatus($status); ?>
-                        </option>
-                      <?php endforeach; ?>
-                    </select>
-                  </td>
+                  <td><span class="badge <?php echo paymentBadgeClass($paymentStatus); ?>"><?php echo labelStatus($paymentStatus); ?></span></td>
+                  <td><span class="badge <?php echo statusBadgeClass($order["order_status"]); ?> status-now">● <?php echo labelStatus($order["order_status"]); ?></span></td>
                   <td><?php echo date("h:i A", strtotime($order["created_at"])); ?></td>
-                  <td><a class="view-btn" href="order-confirmation.php?id=<?php echo (int) $order["order_id"]; ?>" style="display:grid;place-items:center;">👁</a></td>
+                  <td><a class="view-btn" href="order-confirmation.php?id=<?php echo (int) $order["order_id"]; ?>">👁</a></td>
                 </tr>
               <?php endforeach; ?>
             </tbody>
@@ -264,72 +293,41 @@ foreach ($orders as $order) {
 
   <script src="script.js"></script>
   <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      const orderSearch = document.getElementById("orderSearch");
-      const statusFilter = document.getElementById("statusFilter");
-      const paymentFilter = document.getElementById("paymentFilter");
-      const statusTabs = document.getElementById("statusTabs");
-      const tableBody = document.getElementById("ordersTableBody");
-      let activeStatusTab = "all";
+    const rows = Array.from(document.querySelectorAll("#ordersTableBody tr"));
+    const orderSearch = document.getElementById("orderSearch");
+    const statusFilter = document.getElementById("statusFilter");
+    const paymentFilter = document.getElementById("paymentFilter");
+    const statusPills = document.getElementById("statusPills");
+    const refreshBtn = document.getElementById("refreshBtn");
 
-      function filterRows() {
-        const searchValue = orderSearch.value.trim().toLowerCase();
-        const statusValue = statusFilter.value;
-        const paymentValue = paymentFilter.value;
+    function filterRows() {
+      const searchValue = orderSearch.value.trim().toLowerCase();
+      const statusValue = statusFilter.value;
+      const paymentValue = paymentFilter.value;
 
-        tableBody.querySelectorAll("tr[data-status]").forEach(row => {
-          const matchesSearch = row.dataset.search.includes(searchValue);
-          const matchesStatus = statusValue === "all" || row.dataset.status === statusValue;
-          const matchesPayment = paymentValue === "all" || row.dataset.payment === paymentValue;
-          const matchesTab = activeStatusTab === "all" || row.dataset.status === activeStatusTab;
-
-          row.style.display = matchesSearch && matchesStatus && matchesPayment && matchesTab ? "" : "none";
-        });
-      }
-
-      orderSearch.addEventListener("input", filterRows);
-      statusFilter.addEventListener("change", filterRows);
-      paymentFilter.addEventListener("change", filterRows);
-
-      statusTabs.addEventListener("click", event => {
-        const btn = event.target.closest(".status-pill");
-        if (!btn) return;
-
-        statusTabs.querySelectorAll(".status-pill").forEach(item => item.classList.remove("active"));
-        btn.classList.add("active");
-        activeStatusTab = btn.dataset.status;
-        filterRows();
+      rows.forEach(row => {
+        const matchesSearch = row.dataset.search.includes(searchValue);
+        const matchesStatus = statusValue === "all" || row.dataset.status === statusValue;
+        const matchesPayment = paymentValue === "all" || row.dataset.payment === paymentValue;
+        row.style.display = matchesSearch && matchesStatus && matchesPayment ? "" : "none";
       });
+    }
 
-      tableBody.addEventListener("change", async event => {
-        const select = event.target.closest(".status-select");
-        if (!select) return;
+    orderSearch.addEventListener("input", filterRows);
+    statusFilter.addEventListener("change", filterRows);
+    paymentFilter.addEventListener("change", filterRows);
 
-        const formData = new FormData();
-        formData.append("action", "update_status");
-        formData.append("order_id", select.dataset.orderId);
-        formData.append("status", select.value);
-
-        try {
-          const response = await fetch("admin-orders.php", {
-            method: "POST",
-            body: formData
-          });
-
-          const result = await response.json();
-
-          if (!result.success) {
-            throw new Error(result.message || "Status update failed.");
-          }
-
-          alert("Order status updated successfully.");
-          window.location.reload();
-        } catch (error) {
-          alert(error.message || "Status update failed.");
-          window.location.reload();
-        }
-      });
+    statusPills.addEventListener("click", event => {
+      const pill = event.target.closest("[data-status]");
+      if (!pill) return;
+      document.querySelectorAll(".status-pill").forEach(item => item.classList.remove("active"));
+      pill.classList.add("active");
+      statusFilter.value = pill.dataset.status;
+      filterRows();
     });
+
+    refreshBtn.addEventListener("click", () => window.location.reload());
+    setTimeout(() => window.location.reload(), 10000);
   </script>
 </body>
 </html>

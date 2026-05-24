@@ -315,7 +315,7 @@
           return;
         }
 
-        alert("Password updated. Demo only, no real authentication is connected.");
+        alert("Password updated.");
         document.getElementById("passwordForm").reset();
       });
 
