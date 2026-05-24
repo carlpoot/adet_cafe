@@ -242,7 +242,6 @@ const FurrfectCafe = (() => {
   function addToCart(productId, quantity = 1) {
     const product = getProductById(productId);
     if (!product) {
-      alert("Product not found.");
       return;
     }
 
@@ -263,7 +262,6 @@ const FurrfectCafe = (() => {
     }
 
     saveCart(cart);
-    showToast(`${product.name} added to cart`);
   }
 
   function removeFromCart(productId) {
@@ -586,23 +584,11 @@ function createProductCard(product) {
   }
 
  function logoutCustomer() {
-  const confirmLogout = confirm("Are you sure you want to log out of your customer account?");
-
-  if (!confirmLogout) {
-    return;
-  }
-
   localStorage.removeItem("furrfectcafe_logged_in");
   window.location.href = "logout.php";
 }
 
 function logoutAdmin() {
-  const confirmLogout = confirm("Are you sure you want to log out of the admin dashboard?");
-
-  if (!confirmLogout) {
-    return;
-  }
-
   localStorage.removeItem("furrfectcafe_admin_logged_in");
   window.location.href = "logout.php";
 }

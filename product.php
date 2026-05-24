@@ -1,130 +1,10 @@
-<?php
-require_once "includes/auth.php";
-require_once "includes/db.php";
-
-function e($value) {
-    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
-}
-
-function peso($value) {
-    return "₱" . number_format((float)$value, 2);
-}
-
-function product_image($path) {
-    if (!$path) {
-        return "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=80";
-    }
-
-    return $path;
-}
-
-$productId = isset($_GET["id"]) ? (int)$_GET["id"] : 0;
-
-$productStmt = $conn->prepare("
-    SELECT
-        p.product_id,
-        p.product_name,
-        p.description,
-        p.price,
-        p.image_path,
-        p.promo_badge,
-        p.is_available,
-        c.category_name,
-        c.category_slug
-    FROM products p
-    INNER JOIN categories c ON p.category_id = c.category_id
-    WHERE p.product_id = :product_id
-    LIMIT 1
-");
-$productStmt->execute([":product_id" => $productId]);
-$product = $productStmt->fetch();
-
-if (!$product || (int)$product["is_available"] !== 1) {
-    http_response_code(404);
-    ?>
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Product Not Found | FurrfectCafe</title>
-      <link rel="stylesheet" href="style.css">
-    </head>
-    <body>
-      <main class="section">
-        <div class="container">
-          <div class="empty-state">
-            <h1>Product not found</h1>
-            <p class="section-text">This product is unavailable or may have been removed.</p>
-            <a href="menu.php" class="btn btn-primary mt-16">Back to Menu</a>
-          </div>
-        </div>
-      </main>
-    </body>
-    </html>
-    <?php
-    exit;
-}
-
-$sizeStmt = $conn->prepare("
-    SELECT size_id, size_name, price_modifier, is_default
-    FROM product_sizes
-    WHERE product_id = :product_id
-    AND is_available = 1
-    ORDER BY display_order ASC, size_id ASC
-");
-$sizeStmt->execute([":product_id" => $productId]);
-$sizes = $sizeStmt->fetchAll();
-
-if (!$sizes) {
-    $sizes = [
-        [
-            "size_id" => 0,
-            "size_name" => "Regular",
-            "price_modifier" => 0,
-            "is_default" => 1
-        ]
-    ];
-}
-
-$addonStmt = $conn->prepare("
-    SELECT addon_id, addon_name, addon_price
-    FROM product_addons
-    WHERE product_id = :product_id
-    AND is_available = 1
-    ORDER BY display_order ASC, addon_id ASC
-");
-$addonStmt->execute([":product_id" => $productId]);
-$addons = $addonStmt->fetchAll();
-
-$basePrice = (float)$product["price"];
-$imagePath = product_image($product["image_path"]);
-$defaultSizeIndex = 0;
-
-foreach ($sizes as $index => $size) {
-    if ((int)$size["is_default"] === 1) {
-        $defaultSizeIndex = $index;
-        break;
-    }
-}
-
-$defaultUnitPrice = $basePrice + (float)$sizes[$defaultSizeIndex]["price_modifier"];
-$productForJs = [
-    "id" => (int)$product["product_id"],
-    "name" => $product["product_name"],
-    "categoryLabel" => $product["category_name"],
-    "description" => $product["description"] ?? "",
-    "basePrice" => $basePrice,
-    "image" => $imagePath,
-    "badge" => $product["promo_badge"] ?? ""
-];
-?>
+<?php require_once "includes/auth.php"; ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><?php echo e($product["product_name"]); ?> | FurrfectCafe</title>
+  <title>FurrfectCafe | Product</title>
   <link rel="stylesheet" href="style.css">
   <style>
     .product-page {
@@ -265,30 +145,33 @@ $productForJs = [
     }
 
     .size-btn {
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      background: var(--bg-soft);
+      min-height: 52px;
       padding: 12px;
-      display: grid;
-      gap: 3px;
-      text-align: left;
+      border-radius: 16px;
+      border: 1.5px solid var(--border);
+      background: var(--bg-soft);
+      text-align: center;
       transition: var(--transition);
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
     }
 
     .size-btn strong {
-      font-family: Arial, Helvetica, sans-serif;
+      display: block;
+      font-size: 0.82rem;
+      margin-bottom: 2px;
     }
 
     .size-btn span {
-      font-family: Arial, Helvetica, sans-serif;
+      font-size: 0.82rem;
       color: var(--text-muted);
-      font-size: 0.9rem;
     }
 
     .size-btn.active,
     .size-btn:hover {
       border-color: var(--accent);
-      background: #fff8ef;
+      background: #fff7ef;
+      box-shadow: 0 0 0 4px rgba(201, 122, 53, 0.10);
     }
 
     .addon-grid {
@@ -301,61 +184,84 @@ $productForJs = [
       display: flex;
       align-items: center;
       gap: 10px;
+      background: var(--bg-soft);
       border: 1px solid var(--border);
       border-radius: 16px;
-      background: var(--bg-soft);
-      padding: 12px;
+      padding: 12px 14px;
       font-family: Arial, Helvetica, sans-serif;
+      font-size: 12px;
+      transition: var(--transition);
+    }
+
+    .add-item strong {
+      font-weight: 100;
+    }
+
+    .addon-item:hover {
+      border-color: rgba(201, 122, 53, 0.5);
+      background: #fff8f1;
+    }
+
+    .addon-item input {
+      accent-color: var(--accent);
+      width: 16px;
+      height: 16px;
+      margin: 0;
     }
 
     .qty-actions {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      margin-top: 18px;
+      gap: 14px;
       flex-wrap: wrap;
+      margin-top: 16px;
     }
 
     .qty-selector {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      border: 1px solid var(--border);
       background: var(--bg-soft);
+      border: 1px solid var(--border);
       border-radius: 999px;
-      padding: 6px;
-      font-family: Arial, Helvetica, sans-serif;
-      font-weight: 700;
+      overflow: hidden;
+      min-height: 50px;
     }
 
     .qty-selector button {
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      background: var(--surface);
-      color: var(--primary);
+      width: 48px;
+      height: 50px;
       font-size: 1.2rem;
+      color: var(--primary);
     }
 
     .qty-selector span {
-      min-width: 28px;
+      min-width: 46px;
       text-align: center;
+      font-family: Arial, Helvetica, sans-serif;
+      font-weight: 700;
     }
 
     .action-stack {
       display: grid;
       gap: 12px;
-      margin-top: 22px;
+      margin-top: 18px;
     }
 
     .product-notes {
       display: grid;
       gap: 10px;
       margin-top: 20px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
       font-family: Arial, Helvetica, sans-serif;
       color: var(--text-muted);
       font-size: 0.95rem;
+    }
+
+    .product-notes span {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
     }
 
     .mini-footer-card {
@@ -377,6 +283,27 @@ $productForJs = [
       font-family: Arial, Helvetica, sans-serif;
       color: rgba(255,255,255,0.82);
       margin-bottom: 16px;
+    }
+
+
+    .special-instructions-box {
+      width: 100%;
+      min-height: 92px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--bg-soft);
+      padding: 14px 16px;
+      resize: vertical;
+      outline: none;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--text);
+      transition: var(--transition);
+    }
+
+    .special-instructions-box:focus {
+      border-color: rgba(201, 122, 53, 0.65);
+      box-shadow: 0 0 0 4px rgba(201, 122, 53, 0.12);
+      background: #fffaf5;
     }
 
     @media (max-width: 920px) {
@@ -402,7 +329,7 @@ $productForJs = [
   <header class="site-header">
     <div class="container navbar">
       <a href="index.php" class="brand" aria-label="FurrfectCafe home">
-        <span class="brand-mark">FC</span>
+        <span class="brand-mark">CAFE</span>
         <span class="brand-name">FurrfectCafe</span>
       </a>
 
@@ -417,8 +344,7 @@ $productForJs = [
           <span>🛒 Cart</span>
           <span class="cart-pill-count" data-cart-count>0</span>
         </a>
-        <a href="profile.php" class="btn btn-secondary btn-sm">👤 Profile</a>
-        <button type="button" class="btn btn-secondary btn-sm" data-customer-logout>Logout</button>
+        <a href="login.php" class="btn btn-secondary btn-sm">👤 Fuji</a>
       </div>
 
       <button class="menu-toggle" aria-label="Open menu" aria-expanded="false">☰</button>
@@ -430,98 +356,93 @@ $productForJs = [
       <nav class="breadcrumb" aria-label="Breadcrumb">
         <a href="menu.php">Menu</a>
         <span>›</span>
-        <span><?php echo e($product["product_name"]); ?></span>
+        <span id="breadcrumbProductName">Signature Cat Latte</span>
       </nav>
 
       <div class="product-layout">
         <section class="product-gallery">
           <div class="product-main-image-wrap">
-            <div class="product-badge-wrap">
-              <?php if (!empty($product["promo_badge"])): ?>
-                <span class="badge badge-accent"><?php echo e($product["promo_badge"]); ?></span>
-              <?php endif; ?>
-            </div>
+            <div class="product-badge-wrap" id="productBadgeWrap"></div>
             <img
               id="mainProductImage"
               class="product-main-image"
-              src="<?php echo e($imagePath); ?>"
-              alt="<?php echo e($product["product_name"]); ?>"
-              onerror="this.src='https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=80';"
+              src="https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80"
+              alt="Signature Cat Latte"
             >
           </div>
 
           <div class="thumb-row" id="thumbnailGallery">
-            <button class="thumb-btn active" type="button" data-image="<?php echo e($imagePath); ?>">
-              <img
-                src="<?php echo e($imagePath); ?>"
-                alt="<?php echo e($product["product_name"]); ?> thumbnail"
-                onerror="this.src='https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=300&q=80';">
+            <button class="thumb-btn active" type="button" data-image="https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80">
+              <img src="https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=300&q=80" alt="Thumbnail 1">
+            </button>
+            <button class="thumb-btn" type="button" data-image="https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=80">
+              <img src="https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=300&q=80" alt="Thumbnail 2">
+            </button>
+            <button class="thumb-btn" type="button" data-image="https://images.unsplash.com/photo-1517701550927-30cf4ba1f59d?auto=format&fit=crop&w=1200&q=80">
+              <img src="https://images.unsplash.com/photo-1517701550927-30cf4ba1f59d?auto=format&fit=crop&w=300&q=80" alt="Thumbnail 3">
             </button>
           </div>
         </section>
 
         <section class="product-info-card">
           <div class="product-header-meta">
-            <span class="product-category"><?php echo e($product["category_name"]); ?></span>
-            <?php if ((int)$product["is_available"] === 1): ?>
-              <span class="badge badge-soft">Available</span>
-            <?php endif; ?>
+            <span class="product-category" id="productCategory">Hot Drinks</span>
+            <span class="badge badge-soft">Popular</span>
           </div>
 
-          <h1 class="product-big-title"><?php echo e($product["product_name"]); ?></h1>
+          <h1 class="product-big-title" id="productName">Signature Cat Latte</h1>
 
-          <p class="section-text">
-            <?php echo e($product["description"] ?? "Freshly prepared FurrfectCafe favorite."); ?>
+          <p class="section-text" id="productDescription">
+            Rich espresso with velvety steamed milk, topped with adorable cat latte art.
+            Made with premium locally sourced coffee beans, this is our bestselling drink
+            that keeps customers coming back every day.
           </p>
 
           <div class="price-row">
-            <span class="price" id="displayPrice"><?php echo peso($defaultUnitPrice); ?></span>
-            <?php if (!empty($product["promo_badge"])): ?>
-              <span class="old-price"><?php echo peso($defaultUnitPrice + 10); ?></span>
-              <span class="badge badge-accent"><?php echo e($product["promo_badge"]); ?></span>
-            <?php endif; ?>
+            <span class="price" id="displayPrice">₱85.00</span>
+            <span class="old-price" id="oldPrice">₱95.00</span>
+            <span class="badge badge-accent" id="promoBadge">10% OFF</span>
           </div>
 
           <div class="option-block">
             <label class="option-label">Size</label>
             <div class="size-options" id="sizeOptions">
-              <?php foreach ($sizes as $index => $size): ?>
-                <?php $unitPrice = $basePrice + (float)$size["price_modifier"]; ?>
-                <button
-                  class="size-btn <?php echo $index === $defaultSizeIndex ? 'active' : ''; ?>"
-                  type="button"
-                  data-size="<?php echo e($size["size_name"]); ?>"
-                  data-price="<?php echo e($unitPrice); ?>">
-                  <strong><?php echo e($size["size_name"]); ?></strong>
-                  <span><?php echo peso($unitPrice); ?></span>
-                </button>
-              <?php endforeach; ?>
+              <button class="size-btn active" type="button" data-size="Small" data-price="85">
+                <strong>Small</strong>
+                <span>₱85</span>
+              </button>
+              <button class="size-btn" type="button" data-size="Regular" data-price="95">
+                <strong>Regular</strong>
+                <span>₱95</span>
+              </button>
+              <button class="size-btn" type="button" data-size="Large" data-price="110">
+                <strong>Large</strong>
+                <span>₱110</span>
+              </button>
             </div>
           </div>
 
-          <?php if ($addons): ?>
-            <div class="option-block">
-              <label class="option-label">Add-ons <span style="font-weight:400;">(optional)</span></label>
-              <div class="addon-grid">
-                <?php foreach ($addons as $addon): ?>
-                  <label class="addon-item">
-                    <input
-                      type="checkbox"
-                      class="addon-check"
-                      data-name="<?php echo e($addon["addon_name"]); ?>"
-                      data-price="<?php echo e($addon["addon_price"]); ?>">
-                    <span>
-                      <strong><?php echo e($addon["addon_name"]); ?></strong>
-                      <?php echo peso($addon["addon_price"]); ?>
-                    </span>
-                  </label>
-                <?php endforeach; ?>
-              </div>
-            </div>
-          <?php endif; ?>
-
           <div class="option-block">
-            <label class="option-label">Quantity</label>
+            <label class="option-label">Add-ons <span style="font-weight:400;">(optional)</span></label>
+            <div class="addon-grid">
+              <label class="addon-item">
+                <input type="checkbox" class="addon-check" data-name="Extra Shot" data-price="20">
+                <span><strong>Extra Shot</strong> ₱20</span>
+              </label>
+              <label class="addon-item">
+                <input type="checkbox" class="addon-check" data-name="Oat Milk" data-price="15">
+                <span><strong>Oat Milk </strong>₱15</span>
+              </label>
+              <label class="addon-item">
+                <input type="checkbox" class="addon-check" data-name="Vanilla Syrup" data-price="10">
+                <span><strong>Vanilla Syrup</strong> ₱10</span>
+              </label>
+              <label class="addon-item">
+                <input type="checkbox" class="addon-check" data-name="Caramel Drizzle" data-price="10">
+                <span><strong>Caramel Drizzle</strong> ₱10</span>
+              </label>
+            </div>
+
             <div class="qty-actions">
               <div class="qty-selector" aria-label="Quantity selector">
                 <button type="button" id="decreaseQty">−</button>
@@ -530,6 +451,17 @@ $productForJs = [
               </div>
               <div class="section-text">Total updates automatically as you customize.</div>
             </div>
+          </div>
+
+
+          <div class="option-block">
+            <label class="option-label" for="specialInstructions">Special Instructions <span style="font-weight:400;">(optional)</span></label>
+            <textarea
+              id="specialInstructions"
+              class="special-instructions-box"
+              maxlength="180"
+              placeholder="Example: less ice, no whipped cream, extra napkins, allergy note"
+            ></textarea>
           </div>
 
           <div class="action-stack">
@@ -545,7 +477,7 @@ $productForJs = [
 
           <div class="mini-footer-card">
             <div class="mini-footer-brand">
-              <span class="brand-mark">FC</span>
+              <span class="brand-mark">CAFE</span>
               <strong class="brand-name">FurrfectCafe</strong>
             </div>
             <p>
@@ -562,37 +494,108 @@ $productForJs = [
     </div>
   </main>
 
-  <script>
-    window.FURRFECT_DB_PRODUCT = <?php echo json_encode($productForJs, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT); ?>;
-  </script>
   <script src="script.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", () => {
-      const product = window.FURRFECT_DB_PRODUCT;
+      const productId = Number(new URLSearchParams(window.location.search).get("id")) || 1;
+      const allProducts = (window.FurrfectCafe && Array.isArray(FurrfectCafe.products))
+        ? FurrfectCafe.products
+        : [];
+
+      const fallbackProduct = {
+        id: 1,
+        name: "Signature Cat Latte",
+        categoryLabel: "Hot Drinks",
+        description: "Rich espresso with velvety steamed milk, topped with adorable latte art. Made with premium locally sourced coffee beans.",
+        price: 85,
+        badge: "10% OFF",
+        image: "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80"
+      };
+
+      const product = allProducts.find(item => item.id === productId) || fallbackProduct;
+
+      const galleryImages = {
+        1: [
+          "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=1200&q=80",
+          "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=80",
+          "https://images.unsplash.com/photo-1517701550927-30cf4ba1f59d?auto=format&fit=crop&w=1200&q=80"
+        ],
+        2: [
+          "https://images.unsplash.com/photo-1517705008128-361805f42e86?auto=format&fit=crop&w=1200&q=80",
+          "https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=1200&q=80",
+          "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=80"
+        ],
+        3: [
+          "https://images.unsplash.com/photo-1563729784474-d77dbb933a9e?auto=format&fit=crop&w=1200&q=80",
+          "https://images.unsplash.com/photo-1488477181946-6428a0291777?auto=format&fit=crop&w=1200&q=80",
+          "https://images.unsplash.com/photo-1551024601-bec78aea704b?auto=format&fit=crop&w=1200&q=80"
+        ]
+      };
+
+      const images = galleryImages[product.id] || [product.image, product.image, product.image];
+
       const mainImage = document.getElementById("mainProductImage");
       const thumbnailGallery = document.getElementById("thumbnailGallery");
-      const quantityValue = document.getElementById("quantityValue");
+      const productName = document.getElementById("productName");
+      const breadcrumbProductName = document.getElementById("breadcrumbProductName");
+      const productCategory = document.getElementById("productCategory");
+      const productDescription = document.getElementById("productDescription");
       const displayPrice = document.getElementById("displayPrice");
-      const sizeButtons = document.querySelectorAll(".size-btn");
-      const addonChecks = document.querySelectorAll(".addon-check");
+      const oldPrice = document.getElementById("oldPrice");
+      const promoBadge = document.getElementById("promoBadge");
+      const productBadgeWrap = document.getElementById("productBadgeWrap");
+      const quantityValue = document.getElementById("quantityValue");
+      const specialInstructions = document.getElementById("specialInstructions");
 
       let quantity = 1;
-      let selectedSize = {
-        label: sizeButtons[0]?.dataset.size || "Regular",
-        price: Number(sizeButtons[0]?.dataset.price || product.basePrice)
-      };
+      let selectedSize = { label: "Small", price: Number(product.price) };
       const selectedAddons = new Map();
+
+      productName.textContent = product.name;
+      breadcrumbProductName.textContent = product.name;
+      productCategory.textContent = product.categoryLabel;
+      productDescription.textContent = product.description;
+      mainImage.src = images[0];
+      mainImage.alt = product.name;
+
+      if (product.badge) {
+        promoBadge.textContent = product.badge;
+        productBadgeWrap.innerHTML = `<span class="badge badge-accent">${product.badge}</span>`;
+      } else {
+        promoBadge.style.display = "none";
+        oldPrice.style.display = "none";
+      }
+
+      oldPrice.textContent = `₱${(Number(product.price) + 10).toFixed(2)}`;
+
+      thumbnailGallery.innerHTML = images.map((image, index) => `
+        <button class="thumb-btn ${index === 0 ? "active" : ""}" type="button" data-image="${image}">
+          <img src="${image}" alt="${product.name} thumbnail ${index + 1}">
+        </button>
+      `).join("");
+
+      thumbnailGallery.addEventListener("click", (event) => {
+        const btn = event.target.closest(".thumb-btn");
+        if (!btn) return;
+
+        mainImage.src = btn.dataset.image;
+        thumbnailGallery.querySelectorAll(".thumb-btn").forEach(item => item.classList.remove("active"));
+        btn.classList.add("active");
+      });
+
+      const sizeButtons = document.querySelectorAll(".size-btn");
+      const addonChecks = document.querySelectorAll(".addon-check");
 
       function formatPeso(value) {
         return `₱${Number(value).toFixed(2)}`;
       }
 
       function getAddonTotal() {
-        return Array.from(selectedAddons.values()).reduce((sum, value) => sum + value, 0);
+        return Array.from(selectedAddons.values()).reduce((sum, value) => sum + Number(value), 0);
       }
 
       function getUnitPrice() {
-        return selectedSize.price + getAddonTotal();
+        return Number(selectedSize.price) + getAddonTotal();
       }
 
       function getTotalPrice() {
@@ -620,15 +623,20 @@ $productForJs = [
         }
       }
 
+      function makeCartKey(addons, instructions) {
+        const addonKey = addons.map(addon => addon.name).sort().join("|");
+        return `${product.id}-${selectedSize.label}-${addonKey}-${instructions.trim().toLowerCase()}`;
+      }
+
       function addCurrentProductToCart() {
         const addons = Array.from(selectedAddons.entries()).map(([name, price]) => ({
           name,
-          price
+          price: Number(price)
         }));
 
+        const instructions = specialInstructions ? specialInstructions.value.trim() : "";
+        const cartKey = makeCartKey(addons, instructions);
         const cart = getCart();
-        const cartKey = `${product.id}-${selectedSize.label}-${addons.map(addon => addon.name).join("|")}`;
-
         const existing = cart.find(item => item.cartKey === cartKey);
 
         if (existing) {
@@ -643,23 +651,24 @@ $productForJs = [
             image: product.image,
             categoryLabel: product.categoryLabel,
             selectedSize: selectedSize.label,
-            selectedAddons: addons
+            selectedAddons: addons,
+            specialInstructions: instructions
           });
         }
 
         saveCart(cart);
       }
 
-      thumbnailGallery?.addEventListener("click", event => {
-        const btn = event.target.closest(".thumb-btn");
-        if (!btn) return;
-
-        mainImage.src = btn.dataset.image;
-        thumbnailGallery.querySelectorAll(".thumb-btn").forEach(item => item.classList.remove("active"));
-        btn.classList.add("active");
-      });
-
       sizeButtons.forEach(button => {
+        if (Number(button.dataset.price) === Number(product.price)) {
+          sizeButtons.forEach(btn => btn.classList.remove("active"));
+          button.classList.add("active");
+          selectedSize = {
+            label: button.dataset.size,
+            price: Number(button.dataset.price)
+          };
+        }
+
         button.addEventListener("click", () => {
           sizeButtons.forEach(btn => btn.classList.remove("active"));
           button.classList.add("active");

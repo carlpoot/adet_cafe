@@ -5,9 +5,9 @@ require_once "includes/db.php";
 
 function autoStatusConfig() {
     return [
-        "pending_seconds" => 20,
-        "preparing_seconds" => 60,
-        "ready_seconds" => 100
+        "pending_seconds" => 10,
+        "preparing_seconds" => 20,
+        "ready_seconds" => 30
     ];
 }
 
@@ -178,7 +178,6 @@ function displayPaymentMethod($method) {
     .order-item-row, .info-row { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border); }
     .total-row { font-size: 1.25rem; color: var(--primary); border-bottom: none; }
     .action-grid { display: grid; gap: 12px; margin-top: 18px; }
-    .live-status-note { display: inline-flex; gap: 8px; align-items: center; padding: 10px 14px; border-radius: 999px; background: rgba(75,155,99,0.12); color: var(--success); font-family: Arial, Helvetica, sans-serif; font-weight: 700; margin-top: 12px; }
     .status-big { margin-top: 14px; justify-content: center; font-size: 0.95rem; }
     @media (max-width: 820px) { .confirmation-layout { grid-template-columns: 1fr; } }
   </style>
@@ -203,13 +202,12 @@ function displayPaymentMethod($method) {
             <p class="section-text">No recent order was found. Please place an order first.</p>
             <div class="action-grid"><a href="menu.php" class="btn btn-primary btn-full">🍽 Go to Menu</a></div>
           <?php else: ?>
-            <p class="section-text">Your order has been saved in the database. The status updates automatically while this page is open.</p>
-            <div class="live-status-note">● Live status updates every 10 seconds</div>
-
+            <p class="section-text">Your order has been saved in the database.</p>
+      
             <div class="order-number-box">
               <div class="section-text">Your Order Number</div>
               <strong id="orderNumber"><?php echo htmlspecialchars($order["order_number"]); ?></strong>
-              <span class="badge <?php echo statusBadgeClass($order["order_status"]); ?> status-big">Current status: <?php echo labelStatus($order["order_status"]); ?></span>
+              <span class="badge <?php echo statusBadgeClass($order["order_status"]); ?> status-big js-order-status-badge" data-order-status-badge="<?php echo (int) $order["order_id"]; ?>">Current status: <?php echo labelStatus($order["order_status"]); ?></span>
               <button class="btn btn-secondary btn-sm mt-16" id="copyOrderBtn">📋 Copy</button>
             </div>
 
@@ -249,6 +247,7 @@ function displayPaymentMethod($method) {
   </main>
 
   <script src="script.js"></script>
+  <script src="live-order-status.js"></script>
   <?php if ($order): ?>
   <script>
     const copyBtn = document.getElementById("copyOrderBtn");
@@ -267,7 +266,9 @@ function displayPaymentMethod($method) {
         }, 1800);
       });
     }
-    setTimeout(() => window.location.reload(), 10000);
+    if (window.FurrfectLiveStatus) {
+      window.FurrfectLiveStatus.start({ scope: "customer", orderId: <?php echo (int) $order["order_id"]; ?>, interval: 3000 });
+    }
   </script>
   <?php endif; ?>
 </body>

@@ -5,9 +5,9 @@ require_once "includes/db.php";
 
 function autoStatusConfig() {
     return [
-        "pending_seconds" => 20,
-        "preparing_seconds" => 60,
-        "ready_seconds" => 100
+        "pending_seconds" => 10,
+        "preparing_seconds" => 20,
+        "ready_seconds" => 30
     ];
 }
 
@@ -173,7 +173,6 @@ function displayPaymentMethod($method) {
     .customer-cell strong { display: block; }
     .customer-cell small, .type-cell { font-family: Arial, Helvetica, sans-serif; color: var(--text-muted); }
     .view-btn { width: 38px; height: 38px; border-radius: 12px; background: var(--bg-soft); border: 1px solid var(--border); display: inline-grid; place-items: center; }
-    .auto-status { display: inline-flex; align-items: center; gap: 8px; font-family: Arial, Helvetica, sans-serif; color: var(--success); background: rgba(75,155,99,0.12); border: 1px solid rgba(75,155,99,0.22); padding: 9px 12px; border-radius: 999px; font-size: 0.88rem; }
     .status-now { display: inline-flex; align-items: center; gap: 8px; }
     @media (max-width: 1100px) { .toolbar-grid { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 700px) { .toolbar-grid { grid-template-columns: 1fr; } }
@@ -213,10 +212,8 @@ function displayPaymentMethod($method) {
         <div>
           <span class="eyebrow">Orders</span>
           <h1 class="admin-page-title">☰ Order Status Monitor</h1>
-          <p class="section-text">Statuses update automatically based on order time. This page refreshes every 10 seconds.</p>
         </div>
         <div class="admin-toolbar-right">
-          <span class="auto-status">● Auto status active</span>
           <a href="index.php" class="btn btn-secondary btn-sm">View Site</a>
           <a href="logout.php" class="btn btn-secondary btn-sm">Logout</a>
         </div>
@@ -224,11 +221,11 @@ function displayPaymentMethod($method) {
 
       <section class="orders-shell">
         <div class="status-pills" id="statusPills">
-          <button type="button" class="status-pill active" data-status="all">All (<?php echo $statusCounts["all"]; ?>)</button>
-          <button type="button" class="status-pill" data-status="pending">Pending (<?php echo $statusCounts["pending"]; ?>)</button>
-          <button type="button" class="status-pill" data-status="preparing">Preparing (<?php echo $statusCounts["preparing"]; ?>)</button>
-          <button type="button" class="status-pill" data-status="ready">Ready (<?php echo $statusCounts["ready"]; ?>)</button>
-          <button type="button" class="status-pill" data-status="delivered">Delivered (<?php echo $statusCounts["delivered"]; ?>)</button>
+          <button type="button" class="status-pill active" data-status="all">All (<span data-count-status="all"><?php echo $statusCounts["all"]; ?></span>)</button>
+          <button type="button" class="status-pill" data-status="pending">Pending (<span data-count-status="pending"><?php echo $statusCounts["pending"]; ?></span>)</button>
+          <button type="button" class="status-pill" data-status="preparing">Preparing (<span data-count-status="preparing"><?php echo $statusCounts["preparing"]; ?></span>)</button>
+          <button type="button" class="status-pill" data-status="ready">Ready (<span data-count-status="ready"><?php echo $statusCounts["ready"]; ?></span>)</button>
+          <button type="button" class="status-pill" data-status="delivered">Delivered (<span data-count-status="delivered"><?php echo $statusCounts["delivered"]; ?></span>)</button>
         </div>
 
         <div class="toolbar-grid">
@@ -271,7 +268,7 @@ function displayPaymentMethod($method) {
                   $paymentStatus = $order["payment_status"] ?: "unpaid";
                   $searchText = strtolower($order["order_number"] . " " . $order["customer_name"] . " " . ($order["email"] ?? ""));
                 ?>
-                <tr data-status="<?php echo htmlspecialchars($order["order_status"]); ?>" data-payment="<?php echo htmlspecialchars($paymentStatus); ?>" data-search="<?php echo htmlspecialchars($searchText); ?>">
+                <tr data-order-row="<?php echo (int) $order["order_id"]; ?>" data-status="<?php echo htmlspecialchars($order["order_status"]); ?>" data-payment="<?php echo htmlspecialchars($paymentStatus); ?>" data-search="<?php echo htmlspecialchars($searchText); ?>">
                   <td><strong><?php echo htmlspecialchars($order["order_number"]); ?></strong></td>
                   <td class="customer-cell"><strong><?php echo htmlspecialchars($order["customer_name"]); ?></strong><small><?php echo htmlspecialchars($order["email"] ?? "No email"); ?></small></td>
                   <td class="type-cell"><?php echo $order["delivery_type"] === "pickup" ? "☕ Pick-up" : "🚚 Delivery"; ?></td>
@@ -279,7 +276,7 @@ function displayPaymentMethod($method) {
                   <td><?php echo peso($order["total_amount"]); ?></td>
                   <td><?php echo displayPaymentMethod($order["payment_method"] ?? "cod"); ?></td>
                   <td><span class="badge <?php echo paymentBadgeClass($paymentStatus); ?>"><?php echo labelStatus($paymentStatus); ?></span></td>
-                  <td><span class="badge <?php echo statusBadgeClass($order["order_status"]); ?> status-now">● <?php echo labelStatus($order["order_status"]); ?></span></td>
+                  <td><span class="badge <?php echo statusBadgeClass($order["order_status"]); ?> status-now js-order-status-badge" data-order-status-badge="<?php echo (int) $order["order_id"]; ?>">● <?php echo labelStatus($order["order_status"]); ?></span></td>
                   <td><?php echo date("h:i A", strtotime($order["created_at"])); ?></td>
                   <td><a class="view-btn" href="order-confirmation.php?id=<?php echo (int) $order["order_id"]; ?>">👁</a></td>
                 </tr>
@@ -292,6 +289,7 @@ function displayPaymentMethod($method) {
   </div>
 
   <script src="script.js"></script>
+  <script src="live-order-status.js"></script>
   <script>
     const rows = Array.from(document.querySelectorAll("#ordersTableBody tr"));
     const orderSearch = document.getElementById("orderSearch");
@@ -326,8 +324,19 @@ function displayPaymentMethod($method) {
       filterRows();
     });
 
-    refreshBtn.addEventListener("click", () => window.location.reload());
-    setTimeout(() => window.location.reload(), 10000);
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", () => {
+        if (window.FurrfectLiveStatus) {
+          window.FurrfectLiveStatus.refresh({ scope: "admin" }).then(filterRows);
+        }
+      });
+    }
+
+    document.addEventListener("furrfect:status-updated", filterRows);
+
+    if (window.FurrfectLiveStatus) {
+      window.FurrfectLiveStatus.start({ scope: "admin", interval: 3000 });
+    }
   </script>
 </body>
 </html>

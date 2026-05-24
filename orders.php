@@ -5,9 +5,9 @@ require_once "includes/db.php";
 
 function autoStatusConfig() {
     return [
-        "pending_seconds" => 20,
-        "preparing_seconds" => 60,
-        "ready_seconds" => 100
+        "pending_seconds" => 10,
+        "preparing_seconds" => 20,
+        "ready_seconds" => 30
     ];
 }
 
@@ -187,7 +187,6 @@ $itemStmt = $conn->prepare("
       <span class="eyebrow">Order History</span>
       <h1 class="section-title">My Orders</h1>
       <p class="section-text">Track your orders saved in the FurrfectCafe database.</p>
-      <div class="live-status-note">● Live status updates every 10 seconds</div>
 
       <section class="orders-stack mt-24">
         <?php if (!$orders): ?>
@@ -204,19 +203,19 @@ $itemStmt = $conn->prepare("
             $items = $itemStmt->fetchAll();
             $paymentStatus = $order["payment_status"] ?? "unpaid";
           ?>
-          <article class="order-card">
+          <article class="order-card" data-order-card="<?php echo (int) $order["order_id"]; ?>">
             <div class="order-top">
               <div>
                 <h2 class="order-id"><?php echo htmlspecialchars($order["order_number"]); ?></h2>
                 <div class="order-meta"><?php echo date("M d, Y h:i A", strtotime($order["created_at"])); ?> • <?php echo $order["delivery_type"] === "pickup" ? "Pick-up" : "Delivery"; ?></div>
               </div>
               <div class="badge-row">
-                <span class="badge <?php echo statusBadgeClass($order["order_status"]); ?>">● <?php echo labelStatus($order["order_status"]); ?></span>
+                <span class="badge <?php echo statusBadgeClass($order["order_status"]); ?> js-order-status-badge" data-order-status-badge="<?php echo (int) $order["order_id"]; ?>">● <?php echo labelStatus($order["order_status"]); ?></span>
                 <span class="badge <?php echo paymentBadgeClass($paymentStatus); ?>"><?php echo labelStatus($paymentStatus); ?></span>
               </div>
             </div>
 
-            <div class="tracker">
+            <div class="tracker js-order-tracker" data-order-tracker="<?php echo (int) $order["order_id"]; ?>">
               <?php foreach (["pending", "preparing", "ready", "delivered"] as $i => $step): ?>
                 <div class="track-step <?php echo stepClass($order["order_status"], $step); ?>">
                   <div class="track-dot"><?php echo $i + 1; ?></div>
@@ -243,6 +242,13 @@ $itemStmt = $conn->prepare("
   </main>
 
   <script src="script.js"></script>
-  <script>setTimeout(() => window.location.reload(), 10000);</script>
+  <script src="live-order-status.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      if (window.FurrfectLiveStatus) {
+        window.FurrfectLiveStatus.start({ scope: "customer", interval: 3000 });
+      }
+    });
+  </script>
 </body>
 </html>
